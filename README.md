@@ -81,17 +81,35 @@ generated_lhe_archive/
 Large generated artifacts are not committed directly to this repository. Download
 the generated tables, LHE archive, and bundled MadGraph installation from:
 
+[Google Drive: `eft_generated_artifacts_2026-06-10.zip`](https://drive.google.com/file/d/1TevN3HIQ7Pl6PdZSvJ4BLHunqynZnBVT/view?usp=sharing)
+
+Archive details:
+
 ```text
-TODO: add external file-sharing link here
+file:   eft_generated_artifacts_2026-06-10.zip
+size:   about 6.2 GB
+sha256: 3b7aa01501ca9e4697848c006e25eab5daf0b489cd8422378df925c4fc8607f9
 ```
 
-After downloading, place the folders back at these project-local paths:
+After downloading, copy the ZIP into the repository root and unpack it there:
+
+```bash
+cd ~/Dis_Project/MadGraph_tutorial/eft_script_workflow
+sha256sum eft_generated_artifacts_2026-06-10.zip
+unzip eft_generated_artifacts_2026-06-10.zip
+```
+
+The checksum command should print the SHA-256 value shown above. Unzipping from
+the repository root restores the expected project-local paths:
 
 ```text
 external/MG5_aMC_v3_7_1/
 generated_lhe_archive/
 tables/
 ```
+
+If those folders or files already exist and `unzip` asks whether to replace
+them, answer `A` to replace all files from the archive.
 
 The omitted generated files include the multi-GB training CSVs, `end_to_end_events.csv`,
 the compressed LHE archive, and the local MG5 installation. Lightweight summaries,

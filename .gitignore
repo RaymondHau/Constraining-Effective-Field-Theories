@@ -15,6 +15,7 @@ __pycache__/
 !/tables/madminer_style_training/sample_summary.csv
 !/tables/madminer_style_training/generated_event_budget.csv
 /tables/madminer_style_training/lfs_chunks/
+/eft_generated_artifacts_*.zip
 
 .env
 .venv/
