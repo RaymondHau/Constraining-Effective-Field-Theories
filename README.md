@@ -8,10 +8,12 @@ Install Python dependencies into your active environment:
 python -m pip install -r requirements.txt
 ```
 
-Run from Ubuntu, preferably in `tmux`:
+Clone the repository, then run from the repository root in Ubuntu, preferably in
+`tmux`:
 
 ```bash
-cd ~/Dis_Project/MadGraph_tutorial/eft_script_workflow
+git clone https://github.com/RaymondHau/Constraining-Effective-Field-Theories.git
+cd Constraining-Effective-Field-Theories
 tmux new -s eft_10m
 ./run_workflow.sh configs/paper_10m.json
 ```
@@ -91,12 +93,20 @@ size:   about 6.2 GB
 sha256: 3b7aa01501ca9e4697848c006e25eab5daf0b489cd8422378df925c4fc8607f9
 ```
 
-After downloading, copy the ZIP into the repository root and unpack it there:
+After downloading, move or copy the ZIP into the cloned repository root and
+unpack it there:
 
 ```bash
-cd ~/Dis_Project/MadGraph_tutorial/eft_script_workflow
+cd Constraining-Effective-Field-Theories
 sha256sum eft_generated_artifacts_2026-06-10.zip
 unzip eft_generated_artifacts_2026-06-10.zip
+```
+
+If the ZIP is still in your downloads folder, copy it into the repository first,
+for example:
+
+```bash
+cp ~/Downloads/eft_generated_artifacts_2026-06-10.zip .
 ```
 
 The checksum command should print the SHA-256 value shown above. Unzipping from
