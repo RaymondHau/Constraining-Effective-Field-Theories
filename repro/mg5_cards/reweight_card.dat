@@ -1,0 +1,19 @@
+# Native MadGraph reweight points used for morphing and joint targets
+launch --rwgt_name=sm
+  set dim6 2 0.000000000000e+00
+  set dim6 5 0.000000000000e+00
+launch --rwgt_name=w
+  set dim6 2 2.511040000000e+02
+  set dim6 5 1.652000000000e+00
+launch --rwgt_name=neg_w
+  set dim6 2 -2.544080000000e+02
+  set dim6 5 3.304000000000e+00
+launch --rwgt_name=ww
+  set dim6 2 4.956000000000e+00
+  set dim6 5 2.494520000000e+02
+launch --rwgt_name=neg_ww
+  set dim6 2 6.608000000000e+00
+  set dim6 5 -2.527560000000e+02
+launch --rwgt_name=w_ww
+  set dim6 2 2.788576000000e+02
+  set dim6 5 2.469740000000e+02

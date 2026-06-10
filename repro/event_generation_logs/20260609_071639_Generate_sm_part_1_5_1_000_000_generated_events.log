@@ -1,0 +1,569 @@
+$ bash -lc yes 0 | "./processes/PROC_EWdim6_VBF_HAA/bin/generate_events" "basis_00_sm_part01" -f
+
+************************************************************
+*                                                          *
+*                      W E L C O M E to                    *
+*             M A D G R A P H 5 _ a M C @ N L O            *
+*                      M A D E V E N T                     *
+*                                                          *
+*                 *                       *                *
+*                   *        * *        *                  *
+*                     * * * * 5 * * * *                    *
+*                   *        * *        *                  *
+*                 *                       *                *
+*                                                          *
+*         VERSION 3.7.1                                    *
+*                                                          *
+*    The MadGraph5_aMC@NLO Development Team - Find us at   *
+*    https://server06.fynu.ucl.ac.be/projects/madgraph     *
+*                                                          *
+*               Type 'help' for in-line help.              *
+*                                                          *
+************************************************************
+INFO: load configuration from ./processes/PROC_EWdim6_VBF_HAA/Cards/me5_configuration.txt  
+INFO: load configuration from external/MG5_aMC_v3_7_1/input/mg5_configuration.txt  
+INFO: load configuration from ./processes/PROC_EWdim6_VBF_HAA/Cards/me5_configuration.txt  
+Using default text editor "vi". Set another one in ./input/mg5_configuration.txt
+No valid eps viewer found. Please set in ./input/mg5_configuration.txt
+No valid web browser found. Please set in ./input/mg5_configuration.txt
+Using default gzip "pigz". Set another one in ./input/mg5_configuration.txt
+generate_events basis_00_sm_part01 -f
+stty: 'standard input': Inappropriate ioctl for device
+[1;34mvalue '[]' for entry 'bypass_check' is not valid. Preserving previous value: '[]'.
+allowed values are any list composed of the following entries: partonshower[0m
+Generating 1000000 events with run name basis_00_sm_part01
+survey  basis_00_sm_part01 
+INFO: compile directory 
+[1;34mNot able to open file ./processes/PROC_EWdim6_VBF_HAA/crossx.html since no program configured.Please set one in ./input/mg5_configuration.txt[0m
+compile Source Directory
+Using random number seed offset = 43
+INFO: Running Survey 
+Creating Jobs
+Working on SubProcesses
+INFO: Compiling for process 1/1. 
+INFO:     P1_qq_qqh_h_aa  
+[1;34mWARNING: The optimizer detects that you have coupling evaluated to zero: 
+GC_92 GC_93 GC_94 GC_117
+This will slow down the computation. Please consider using restricted model:
+https://answers.launchpad.net/mg5amcnlo/+faq/2312 [0m
+
+  0%|          | 0/804 [00:00<?, ?it/s]
+100%|██████████| 804/804 [00:00<00:00, 237915.93it/s]
+INFO:     P1_qq_qqh_h_aa  
+INFO:  Idle: 1,  Running: 0,  Completed: 0 [ current time: 07h16 ] 
+INFO:  Idle: 0,  Running: 0,  Completed: 1 [  0.27s  ] 
+INFO:  Idle: 0,  Running: 0,  Completed: 1 [  0.28s  ] 
+INFO: End survey 
+refine 1000000
+Creating Jobs
+INFO: Refine results to 1000000 
+INFO: Generating 1000000.0 unweighted events. 
+sum of cpu time of last step: 0 second
+INFO: Effective Luminosity 1776724903.7607343 pb^-1 
+INFO: need to improve 1 channels 
+- Current estimate of cross-section: 0.0006754 +- 3.0316e-05
+    P1_qq_qqh_h_aa 
+INFO:  Idle: 114,  Running: 16,  Completed: 0 [ current time: 07h16 ] 
+INFO:  Idle: 113,  Running: 16,  Completed: 1 [  44s  ] 
+INFO:  Idle: 97,  Running: 16,  Completed: 17 [  1m 15s  ] 
+INFO:  Idle: 96,  Running: 16,  Completed: 18 [  1m 19s  ] 
+INFO:  Idle: 95,  Running: 16,  Completed: 19 [  1m 30s  ] 
+INFO:  Idle: 82,  Running: 16,  Completed: 32 [  1m 33s  ] 
+INFO:  Idle: 81,  Running: 16,  Completed: 33 [  2m 6s  ] 
+INFO:  Idle: 79,  Running: 16,  Completed: 35 [  2m 17s  ] 
+INFO:  Idle: 75,  Running: 16,  Completed: 39 [  2m 21s  ] 
+INFO:  Idle: 67,  Running: 16,  Completed: 47 [  2m 28s  ] 
+INFO:  Idle: 65,  Running: 16,  Completed: 49 [  2m 54s  ] 
+INFO:  Idle: 64,  Running: 16,  Completed: 50 [  2m 58s  ] 
+INFO:  Idle: 63,  Running: 16,  Completed: 51 [  3m 5s  ] 
+INFO:  Idle: 62,  Running: 16,  Completed: 52 [  3m 8s  ] 
+INFO:  Idle: 58,  Running: 16,  Completed: 56 [  3m 12s  ] 
+INFO:  Idle: 51,  Running: 16,  Completed: 63 [  3m 25s  ] 
+INFO:  Idle: 49,  Running: 16,  Completed: 65 [  3m 41s  ] 
+INFO:  Idle: 48,  Running: 16,  Completed: 66 [  3m 46s  ] 
+INFO:  Idle: 47,  Running: 16,  Completed: 67 [  4m 6s  ] 
+INFO:  Idle: 39,  Running: 16,  Completed: 75 [  4m 9s  ] 
+INFO:  Idle: 35,  Running: 16,  Completed: 79 [  4m 21s  ] 
+INFO:  Idle: 34,  Running: 16,  Completed: 80 [  4m 32s  ] 
+INFO:  Idle: 33,  Running: 16,  Completed: 81 [  4m 45s  ] 
+INFO:  Idle: 32,  Running: 16,  Completed: 82 [  4m 51s  ] 
+INFO:  Idle: 31,  Running: 16,  Completed: 83 [  4m 58s  ] 
+INFO:  Idle: 30,  Running: 16,  Completed: 84 [  5m 6s  ] 
+INFO:  Idle: 22,  Running: 16,  Completed: 92 [  5m 9s  ] 
+INFO:  Idle: 19,  Running: 16,  Completed: 95 [  5m 16s  ] 
+INFO:  Idle: 18,  Running: 16,  Completed: 96 [  5m 26s  ] 
+INFO:  Idle: 17,  Running: 16,  Completed: 97 [  5m 44s  ] 
+INFO:  Idle: 16,  Running: 16,  Completed: 98 [  6m 0s  ] 
+INFO:  Idle: 6,  Running: 16,  Completed: 108 [  6m 8s  ] 
+INFO:  Idle: 3,  Running: 16,  Completed: 111 [  6m 13s  ] 
+INFO:  Idle: 2,  Running: 16,  Completed: 112 [  6m 32s  ] 
+INFO:  Idle: 0,  Running: 16,  Completed: 114 [  6m 58s  ] 
+INFO:  Idle: 0,  Running: 13,  Completed: 117 [  7m 2s  ] 
+INFO:  Idle: 0,  Running: 7,  Completed: 123 [  7m 9s  ] 
+INFO:  Idle: 0,  Running: 2,  Completed: 128 [  7m 26s  ] 
+INFO:  Idle: 0,  Running: 0,  Completed: 130 [  7m 34s  ] 
+INFO:  Idle: 0,  Running: 0,  Completed: 130 [  7m 34s  ] 
+INFO: Combining runs 
+sum of cpu time of last step: 1h45m36s
+INFO: finish refine 
+refine 1000000 --treshold=0.9
+No need for second refine due to stability of cross-section
+INFO: Combining Events 
+combination of events done in 77.88767695426941 s 
+  === Results Summary for run: basis_00_sm_part01 tag: tag_1 ===
+
+     Cross-section :   0.0006605 +- 2.023e-07 pb
+     Nb of events :  1000000
+ 
+INFO: No version of lhapdf. Can not run systematics computation 
+store_events
+INFO: Storing parton level results 
+INFO: End Parton 
+reweight -from_cards
+INFO: Extracting the banner ... 
+INFO: process: u d > u d h  
+INFO: options: / a z QCD=0 QED=99 NP=2, h > a a QCD=0 QED=99 NP=0 
+INFO: Running Reweighting 
+launch --rwgt_name=sm
+INFO: detected model: EWdim6-full. Loading... 
+INFO: detected model: EWdim6-full. Loading... 
+INFO: generating the square matrix element for reweighting 
+INFO: generate u d > u d h / a z QCD=0 QED=99 NP=2, h > a a QCD=0 QED=99 NP=0 ; 
+INFO: Done 2.647 
+Do you want to edit a card (press enter to bypass editing)?
+/------------------------------------------------------------\
+|  [31m1[0m. param : [32mparam_card.dat[0m                                 |
+|  [31m9[0m. plot  : [32mplot_card.dat[0m                                  |
+\------------------------------------------------------------/
+ you can also
+   - enter the path to a valid card or banner.
+   - use the 'set' command to modify a parameter directly.
+     The set option works only for param_card and run_card.
+     Type 'help set' for more information on this command.
+   - call an external program (ASperGE/MadWidth/...).
+     Type 'help' for the list of available command
+ [[4m0[0m, done, 1, param, 9, plot, enter path]
+>[1;34mWARNING:  REWEIGHTING: original card and new card are identical. [0m
+INFO: starts to compute weight for events with the following modification to the param_card: 
+INFO:  
+INFO: Event nb 0 current time: 07h26 
+INFO: Event nb 10 current time: 07h26 
+INFO: Event nb 20 current time: 07h26 
+INFO: Event nb 30 current time: 07h26 
+INFO: Event nb 40 current time: 07h26 
+INFO: Event nb 50  0.022s  
+INFO: Event nb 60  0.026s  
+INFO: Event nb 70  0.03s  
+INFO: Event nb 80  0.034s  
+INFO: Event nb 90  0.039s  
+INFO: Event nb 100  0.043s  
+INFO: Event nb 200  0.074s  
+INFO: Event nb 300  0.11s  
+INFO: Event nb 400  0.14s  
+INFO: Event nb 500  0.17s  
+INFO: Event nb 600  0.2s  
+INFO: Event nb 700  0.23s  
+INFO: Event nb 800  0.26s  
+INFO: Event nb 900  0.29s  
+INFO: Event nb 1000  0.32s  
+INFO: Event nb 2000  0.63s  
+INFO: Event nb 3000  0.92s  
+INFO: Event nb 4000  1.2s  
+INFO: Event nb 5000  1.5s  
+INFO: Event nb 6000  1.7s  
+INFO: Event nb 7000  2s  
+INFO: Event nb 8000  2.3s  
+INFO: Event nb 9000  2.6s  
+INFO: Event nb 10000  2.8s  
+INFO: reducing number of print status. Next status update in 10000 events 
+INFO: Event nb 20000  5.6s  
+INFO: Event nb 30000  8.5s  
+INFO: Event nb 40000  11.3s  
+INFO: Event nb 50000  14.1s  
+INFO: Event nb 60000  16.9s  
+INFO: Event nb 70000  19.6s  
+INFO: Event nb 80000  23s  
+INFO: Event nb 90000  25.8s  
+INFO: Event nb 100000  28.5s  
+INFO: reducing number of print status. Next status update in 100000 events 
+INFO: Event nb 200000  56.9s  
+INFO: Event nb 300000  1m 24s  
+INFO: Event nb 400000  1m 53s  
+INFO: Event nb 500000  2m 21s  
+INFO: Event nb 600000  2m 49s  
+INFO: Event nb 700000  3m 18s  
+INFO: Event nb 800000  3m 46s  
+INFO: Event nb 900000  4m 14s  
+INFO: All event done  (nb_event: 1000000)  4m 42s  
+INFO: Event ./processes/PROC_EWdim6_VBF_HAA/Events/basis_00_sm_part01/unweighted_events.lhe have now the additional weight 
+INFO: new cross-section is : 0.00066046 pb (indicative error: 2.0233e-07 pb) 
+launch --rwgt_name=w
+INFO: detected model: EWdim6-full. Loading... 
+Do you want to edit a card (press enter to bypass editing)?
+/------------------------------------------------------------\
+|  [31m1[0m. param : [32mparam_card.dat[0m                                 |
+|  [31m9[0m. plot  : [32mplot_card.dat[0m                                  |
+\------------------------------------------------------------/
+ you can also
+   - enter the path to a valid card or banner.
+   - use the 'set' command to modify a parameter directly.
+     The set option works only for param_card and run_card.
+     Type 'help set' for more information on this command.
+   - call an external program (ASperGE/MadWidth/...).
+     Type 'help' for the list of available command
+ [[4m0[0m, done, 1, param, 9, plot, enter path]
+>INFO: starts to compute weight for events with the following modification to the param_card: 
+INFO: set param_card dim6 2 251.104 # orig: 0.0
+KEEP:set param_card dim6 5 1.652 # orig: 0.0
+KEEP: 
+INFO: Event nb 0 current time: 07h31 
+INFO: Event nb 10 current time: 07h31 
+INFO: Event nb 20 current time: 07h31 
+INFO: Event nb 30 current time: 07h31 
+INFO: Event nb 40 current time: 07h31 
+INFO: Event nb 50  0.024s  
+INFO: Event nb 60  0.028s  
+INFO: Event nb 70  0.031s  
+INFO: Event nb 80  0.036s  
+INFO: Event nb 90  0.04s  
+INFO: Event nb 100  0.044s  
+INFO: Event nb 200  0.073s  
+INFO: Event nb 300  0.1s  
+INFO: Event nb 400  0.13s  
+INFO: Event nb 500  0.16s  
+INFO: Event nb 600  0.19s  
+INFO: Event nb 700  0.22s  
+INFO: Event nb 800  0.25s  
+INFO: Event nb 900  0.28s  
+INFO: Event nb 1000  0.31s  
+INFO: Event nb 2000  0.59s  
+INFO: Event nb 3000  0.88s  
+INFO: Event nb 4000  1.2s  
+INFO: Event nb 5000  1.4s  
+INFO: Event nb 6000  1.7s  
+INFO: Event nb 7000  2s  
+INFO: Event nb 8000  2.3s  
+INFO: Event nb 9000  2.6s  
+INFO: Event nb 10000  2.9s  
+INFO: reducing number of print status. Next status update in 10000 events 
+INFO: Event nb 20000  5.8s  
+INFO: Event nb 30000  8.7s  
+INFO: Event nb 40000  11.5s  
+INFO: Event nb 50000  14.5s  
+INFO: Event nb 60000  17.4s  
+INFO: Event nb 70000  20.3s  
+INFO: Event nb 80000  23.2s  
+INFO: Event nb 90000  26.1s  
+INFO: Event nb 100000  29s  
+INFO: reducing number of print status. Next status update in 100000 events 
+INFO: Event nb 200000  58.1s  
+INFO: Event nb 300000  1m 27s  
+INFO: Event nb 400000  1m 56s  
+INFO: Event nb 500000  2m 25s  
+INFO: Event nb 600000  2m 54s  
+INFO: Event nb 700000  3m 23s  
+INFO: Event nb 800000  3m 53s  
+INFO: Event nb 900000  4m 22s  
+INFO: All event done  (nb_event: 1000000)  4m 52s  
+INFO: Event ./processes/PROC_EWdim6_VBF_HAA/Events/basis_00_sm_part01/unweighted_events.lhe have now the additional weight 
+INFO: new cross-section is : 0.0251197 pb (indicative error: 0.0169312 pb) 
+launch --rwgt_name=neg_w
+INFO: detected model: EWdim6-full. Loading... 
+Do you want to edit a card (press enter to bypass editing)?
+/------------------------------------------------------------\
+|  [31m1[0m. param : [32mparam_card.dat[0m                                 |
+|  [31m9[0m. plot  : [32mplot_card.dat[0m                                  |
+\------------------------------------------------------------/
+ you can also
+   - enter the path to a valid card or banner.
+   - use the 'set' command to modify a parameter directly.
+     The set option works only for param_card and run_card.
+     Type 'help set' for more information on this command.
+   - call an external program (ASperGE/MadWidth/...).
+     Type 'help' for the list of available command
+ [[4m0[0m, done, 1, param, 9, plot, enter path]
+>INFO: starts to compute weight for events with the following modification to the param_card: 
+INFO: set param_card dim6 2 -254.408 # orig: 0.0
+KEEP:set param_card dim6 5 3.304 # orig: 0.0
+KEEP: 
+INFO: Event nb 0 current time: 07h36 
+INFO: Event nb 10 current time: 07h36 
+INFO: Event nb 20 current time: 07h36 
+INFO: Event nb 30 current time: 07h36 
+INFO: Event nb 40 current time: 07h36 
+INFO: Event nb 50  0.023s  
+INFO: Event nb 60  0.027s  
+INFO: Event nb 70  0.033s  
+INFO: Event nb 80  0.038s  
+INFO: Event nb 90  0.042s  
+INFO: Event nb 100  0.047s  
+INFO: Event nb 200  0.079s  
+INFO: Event nb 300  0.11s  
+INFO: Event nb 400  0.15s  
+INFO: Event nb 500  0.19s  
+INFO: Event nb 600  0.22s  
+INFO: Event nb 700  0.25s  
+INFO: Event nb 800  0.28s  
+INFO: Event nb 900  0.31s  
+INFO: Event nb 1000  0.35s  
+INFO: Event nb 2000  0.7s  
+INFO: Event nb 3000  0.99s  
+INFO: Event nb 4000  1.3s  
+INFO: Event nb 5000  1.6s  
+INFO: Event nb 6000  1.9s  
+INFO: Event nb 7000  2.2s  
+INFO: Event nb 8000  2.5s  
+INFO: Event nb 9000  2.7s  
+INFO: Event nb 10000  3s  
+INFO: reducing number of print status. Next status update in 10000 events 
+INFO: Event nb 20000  6.1s  
+INFO: Event nb 30000  9s  
+INFO: Event nb 40000  11.9s  
+INFO: Event nb 50000  14.8s  
+INFO: Event nb 60000  17.7s  
+INFO: Event nb 70000  20.6s  
+INFO: Event nb 80000  23.5s  
+INFO: Event nb 90000  26.4s  
+INFO: Event nb 100000  29.4s  
+INFO: reducing number of print status. Next status update in 100000 events 
+INFO: Event nb 200000  58.6s  
+INFO: Event nb 300000  1m 28s  
+INFO: Event nb 400000  1m 58s  
+INFO: Event nb 500000  2m 28s  
+INFO: Event nb 600000  2m 58s  
+INFO: Event nb 700000  3m 27s  
+INFO: Event nb 800000  3m 57s  
+INFO: Event nb 900000  4m 26s  
+INFO: All event done  (nb_event: 1000000)  4m 56s  
+INFO: Event ./processes/PROC_EWdim6_VBF_HAA/Events/basis_00_sm_part01/unweighted_events.lhe have now the additional weight 
+INFO: new cross-section is : 0.0331309 pb (indicative error: 0.0176702 pb) 
+launch --rwgt_name=ww
+INFO: detected model: EWdim6-full. Loading... 
+Do you want to edit a card (press enter to bypass editing)?
+/------------------------------------------------------------\
+|  [31m1[0m. param : [32mparam_card.dat[0m                                 |
+|  [31m9[0m. plot  : [32mplot_card.dat[0m                                  |
+\------------------------------------------------------------/
+ you can also
+   - enter the path to a valid card or banner.
+   - use the 'set' command to modify a parameter directly.
+     The set option works only for param_card and run_card.
+     Type 'help set' for more information on this command.
+   - call an external program (ASperGE/MadWidth/...).
+     Type 'help' for the list of available command
+ [[4m0[0m, done, 1, param, 9, plot, enter path]
+>INFO: starts to compute weight for events with the following modification to the param_card: 
+INFO: set param_card dim6 2 4.956 # orig: 0.0
+KEEP:set param_card dim6 5 249.452 # orig: 0.0
+KEEP: 
+INFO: Event nb 0 current time: 07h41 
+INFO: Event nb 10 current time: 07h41 
+INFO: Event nb 20 current time: 07h41 
+INFO: Event nb 30 current time: 07h41 
+INFO: Event nb 40  0.025s  
+INFO: Event nb 50  0.029s  
+INFO: Event nb 60  0.034s  
+INFO: Event nb 70  0.039s  
+INFO: Event nb 80  0.043s  
+INFO: Event nb 90  0.048s  
+INFO: Event nb 100  0.051s  
+INFO: Event nb 200  0.084s  
+INFO: Event nb 300  0.11s  
+INFO: Event nb 400  0.15s  
+INFO: Event nb 500  0.18s  
+INFO: Event nb 600  0.21s  
+INFO: Event nb 700  0.25s  
+INFO: Event nb 800  0.28s  
+INFO: Event nb 900  0.31s  
+INFO: Event nb 1000  0.34s  
+INFO: Event nb 2000  0.65s  
+INFO: Event nb 3000  0.96s  
+INFO: Event nb 4000  1.3s  
+INFO: Event nb 5000  1.6s  
+INFO: Event nb 6000  1.9s  
+INFO: Event nb 7000  2.2s  
+INFO: Event nb 8000  2.5s  
+INFO: Event nb 9000  2.8s  
+INFO: Event nb 10000  3.1s  
+INFO: reducing number of print status. Next status update in 10000 events 
+INFO: Event nb 20000  6.1s  
+INFO: Event nb 30000  9s  
+INFO: Event nb 40000  12s  
+INFO: Event nb 50000  15s  
+INFO: Event nb 60000  17.9s  
+INFO: Event nb 70000  20.9s  
+INFO: Event nb 80000  23.9s  
+INFO: Event nb 90000  26.9s  
+INFO: Event nb 100000  29.9s  
+INFO: reducing number of print status. Next status update in 100000 events 
+INFO: Event nb 200000  59.5s  
+INFO: Event nb 300000  1m 29s  
+INFO: Event nb 400000  2m 0s  
+INFO: Event nb 500000  2m 30s  
+INFO: Event nb 600000  3m 0s  
+INFO: Event nb 700000  3m 29s  
+INFO: Event nb 800000  4m 0s  
+INFO: Event nb 900000  4m 30s  
+INFO: All event done  (nb_event: 1000000)  5m 1s  
+INFO: Event ./processes/PROC_EWdim6_VBF_HAA/Events/basis_00_sm_part01/unweighted_events.lhe have now the additional weight 
+INFO: new cross-section is : 0.0304194 pb (indicative error: 0.0159451 pb) 
+launch --rwgt_name=neg_ww
+INFO: detected model: EWdim6-full. Loading... 
+Do you want to edit a card (press enter to bypass editing)?
+/------------------------------------------------------------\
+|  [31m1[0m. param : [32mparam_card.dat[0m                                 |
+|  [31m9[0m. plot  : [32mplot_card.dat[0m                                  |
+\------------------------------------------------------------/
+ you can also
+   - enter the path to a valid card or banner.
+   - use the 'set' command to modify a parameter directly.
+     The set option works only for param_card and run_card.
+     Type 'help set' for more information on this command.
+   - call an external program (ASperGE/MadWidth/...).
+     Type 'help' for the list of available command
+ [[4m0[0m, done, 1, param, 9, plot, enter path]
+>INFO: starts to compute weight for events with the following modification to the param_card: 
+INFO: set param_card dim6 2 6.608 # orig: 0.0
+KEEP:set param_card dim6 5 -252.756 # orig: 0.0
+KEEP: 
+INFO: Event nb 0 current time: 07h46 
+INFO: Event nb 10 current time: 07h46 
+INFO: Event nb 20 current time: 07h46 
+INFO: Event nb 30 current time: 07h46 
+INFO: Event nb 40 current time: 07h46 
+INFO: Event nb 50  0.023s  
+INFO: Event nb 60  0.027s  
+INFO: Event nb 70  0.031s  
+INFO: Event nb 80  0.035s  
+INFO: Event nb 90  0.039s  
+INFO: Event nb 100  0.043s  
+INFO: Event nb 200  0.074s  
+INFO: Event nb 300  0.1s  
+INFO: Event nb 400  0.14s  
+INFO: Event nb 500  0.18s  
+INFO: Event nb 600  0.21s  
+INFO: Event nb 700  0.24s  
+INFO: Event nb 800  0.27s  
+INFO: Event nb 900  0.3s  
+INFO: Event nb 1000  0.33s  
+INFO: Event nb 2000  0.66s  
+INFO: Event nb 3000  0.96s  
+INFO: Event nb 4000  1.3s  
+INFO: Event nb 5000  1.6s  
+INFO: Event nb 6000  1.9s  
+INFO: Event nb 7000  2.3s  
+INFO: Event nb 8000  2.6s  
+INFO: Event nb 9000  2.9s  
+INFO: Event nb 10000  3.3s  
+INFO: reducing number of print status. Next status update in 10000 events 
+INFO: Event nb 20000  6.3s  
+INFO: Event nb 30000  9.4s  
+INFO: Event nb 40000  12.4s  
+INFO: Event nb 50000  15.6s  
+INFO: Event nb 60000  18.6s  
+INFO: Event nb 70000  21.6s  
+INFO: Event nb 80000  24.6s  
+INFO: Event nb 90000  27.5s  
+INFO: Event nb 100000  30.6s  
+INFO: reducing number of print status. Next status update in 100000 events 
+INFO: Event nb 200000  1m 0s  
+INFO: Event nb 300000  1m 30s  
+INFO: Event nb 400000  2m 1s  
+INFO: Event nb 500000  2m 31s  
+INFO: Event nb 600000  3m 1s  
+INFO: Event nb 700000  3m 32s  
+INFO: Event nb 800000  4m 2s  
+INFO: Event nb 900000  4m 32s  
+INFO: All event done  (nb_event: 1000000)  5m 3s  
+INFO: Event ./processes/PROC_EWdim6_VBF_HAA/Events/basis_00_sm_part01/unweighted_events.lhe have now the additional weight 
+INFO: new cross-section is : 0.0311988 pb (indicative error: 0.0164606 pb) 
+launch --rwgt_name=w_ww
+INFO: detected model: EWdim6-full. Loading... 
+Do you want to edit a card (press enter to bypass editing)?
+/------------------------------------------------------------\
+|  [31m1[0m. param : [32mparam_card.dat[0m                                 |
+|  [31m9[0m. plot  : [32mplot_card.dat[0m                                  |
+\------------------------------------------------------------/
+ you can also
+   - enter the path to a valid card or banner.
+   - use the 'set' command to modify a parameter directly.
+     The set option works only for param_card and run_card.
+     Type 'help set' for more information on this command.
+   - call an external program (ASperGE/MadWidth/...).
+     Type 'help' for the list of available command
+ [[4m0[0m, done, 1, param, 9, plot, enter path]
+>INFO: starts to compute weight for events with the following modification to the param_card: 
+INFO: set param_card dim6 2 278.8576 # orig: 0.0
+KEEP:set param_card dim6 5 246.974 # orig: 0.0
+KEEP: 
+INFO: Event nb 0 current time: 07h51 
+INFO: Event nb 10 current time: 07h51 
+INFO: Event nb 20 current time: 07h51 
+INFO: Event nb 30 current time: 07h51 
+INFO: Event nb 40 current time: 07h51 
+INFO: Event nb 50  0.025s  
+INFO: Event nb 60  0.029s  
+INFO: Event nb 70  0.033s  
+INFO: Event nb 80  0.038s  
+INFO: Event nb 90  0.042s  
+INFO: Event nb 100  0.047s  
+INFO: Event nb 200  0.081s  
+INFO: Event nb 300  0.11s  
+INFO: Event nb 400  0.14s  
+INFO: Event nb 500  0.18s  
+INFO: Event nb 600  0.21s  
+INFO: Event nb 700  0.24s  
+INFO: Event nb 800  0.27s  
+INFO: Event nb 900  0.3s  
+INFO: Event nb 1000  0.33s  
+INFO: Event nb 2000  0.64s  
+INFO: Event nb 3000  0.96s  
+INFO: Event nb 4000  1.3s  
+INFO: Event nb 5000  1.6s  
+INFO: Event nb 6000  1.9s  
+INFO: Event nb 7000  2.2s  
+INFO: Event nb 8000  2.5s  
+INFO: Event nb 9000  2.8s  
+INFO: Event nb 10000  3.1s  
+INFO: reducing number of print status. Next status update in 10000 events 
+INFO: Event nb 20000  6.1s  
+INFO: Event nb 30000  9.2s  
+INFO: Event nb 40000  12.1s  
+INFO: Event nb 50000  15.1s  
+INFO: Event nb 60000  18.1s  
+INFO: Event nb 70000  21.1s  
+INFO: Event nb 80000  24.1s  
+INFO: Event nb 90000  27.1s  
+INFO: Event nb 100000  30.2s  
+INFO: reducing number of print status. Next status update in 100000 events 
+INFO: Event nb 200000  1m 0s  
+INFO: Event nb 300000  1m 30s  
+INFO: Event nb 400000  2m 1s  
+INFO: Event nb 500000  2m 31s  
+INFO: Event nb 600000  3m 1s  
+INFO: Event nb 700000  3m 32s  
+INFO: Event nb 800000  4m 3s  
+INFO: Event nb 900000  4m 35s  
+INFO: All event done  (nb_event: 1000000)  5m 7s  
+INFO: Event ./processes/PROC_EWdim6_VBF_HAA/Events/basis_00_sm_part01/unweighted_events.lhe have now the additional weight 
+INFO: new cross-section is : 0.0602614 pb (indicative error: 0.0322862 pb) 
+INFO: Original cross-section: 0.00066046 +- 2.0233e-07 pb (cross-section from sum of weights: 0.0006604599999896052) 
+INFO: Computed cross-section: 
+INFO: rwgt_1 : 0.0006604599999896052 +- 2.0233e-07 pb 
+INFO: rwgt_2 : 0.025119714666245952 +- 0.016931208715257794 pb 
+INFO: rwgt_3 : 0.03313091827858324 +- 0.017670233830591475 pb 
+INFO: rwgt_4 : 0.03041937771761413 +- 0.01594508784790989 pb 
+INFO: rwgt_5 : 0.031198831635073927 +- 0.016460632944271365 pb 
+INFO: rwgt_6 : 0.06026142466651468 +- 0.0322861839087348 pb 
+INFO: quit rwgt 
+decay_events -from_cards
+INFO: storing files of previous run 
+gzipping output file: unweighted_events.lhe
+INFO: Done 
+quit
+INFO:  
+GDBus.Error:org.freedesktop.DBus.Error.ServiceUnknown: The name org.freedesktop.Notifications was not provided by any .service files
+ no parameter matchingQNUMBERS 9000006_1                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 0.0000000000000000     
+ no parameter matchingQNUMBERS 9000006_2                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 1.0000000000000000     
+ no parameter matchingQNUMBERS 9000006_3                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 1.0000000000000000     
+ no parameter matchingQNUMBERS 9000006_4                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 0.0000000000000000     

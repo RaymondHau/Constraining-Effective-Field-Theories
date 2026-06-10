@@ -1,0 +1,4 @@
+split,base_accepted_events,ratio_rows,local_rows,requested_ratio_rows,requested_local_rows,ratio_y0_rows,ratio_y1_rows,unique_ratio_events,unique_local_events
+train,939400,10000000,10000000,10000000,10000000,5000000,5000000,939349,583733
+validation,201300,50000,50000,50000,50000,25000,25000,44117,40738
+test,201300,50000,50000,50000,50000,25000,25000,44126,40775

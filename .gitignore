@@ -1,0 +1,21 @@
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+
+/external/MG5_aMC_v3_7_1/
+/generated_lhe_archive/
+/processes/
+/event_generation_logs/
+/script_workflow_logs/
+
+# Heavy generated datasets should be downloaded from the external data link
+# documented in README.md.
+/tables/end_to_end_events.csv
+/tables/madminer_style_training/*.csv
+!/tables/madminer_style_training/sample_summary.csv
+!/tables/madminer_style_training/generated_event_budget.csv
+/tables/madminer_style_training/lfs_chunks/
+
+.env
+.venv/
+venv/

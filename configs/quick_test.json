@@ -1,0 +1,30 @@
+﻿{
+  "name": "quick_test_full_workflow",
+  "python": "auto",
+  "log_dir": "logs/script_workflow_logs",
+  "env": {},
+  "stages": [
+    {
+      "name": "event_generation",
+      "script": "scripts/EFT_event_generation.py",
+      "enabled": true,
+      "config": "quick_test/event_generation.json"
+    },
+    {
+      "name": "prepare_samples",
+      "script": "scripts/EFT_prepare_samples.py",
+      "enabled": true,
+      "config": "quick_test/sample_preparation.json"
+    },
+    {
+      "name": "train_estimators",
+      "script": "scripts/EFT_train_estimators.py",
+      "enabled": true,
+      "config": "quick_test/neural_training.json"
+    }
+  ]
+}
+
+
+
+

@@ -1,0 +1,7 @@
+benchmark,generated_events_requested
+sm,5000000
+w,1000000
+neg_w,1000000
+ww,1000000
+neg_ww,1000000
+w_ww,1000000
