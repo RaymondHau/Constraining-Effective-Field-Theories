@@ -9,6 +9,14 @@ Set up the Python environment on CSD3 from the repository root:
 bash slurm/setup_environment.sh
 ```
 
+The workflow requires Python 3.10 or newer. If the default `python` module is
+older, load a newer module during setup and submission, for example:
+
+```bash
+MODULES="python/3.10" bash slurm/setup_environment.sh
+SBATCH_ARGS="--export=ALL,VENV=$HOME/eft_venv,MODULES=python/3.10" bash slurm/submit_neural_training.sh
+```
+
 Submit individual stages:
 
 ```bash

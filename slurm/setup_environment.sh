@@ -21,6 +21,16 @@ echo "[setup] repo: $REPO_DIR"
 echo "[setup] venv: $VENV"
 echo "[setup] python: $("$PYTHON_BIN" --version)"
 
+"$PYTHON_BIN" - <<'PY'
+import sys
+
+minimum = (3, 10)
+if sys.version_info < minimum:
+    version = ".".join(map(str, sys.version_info[:3]))
+    required = ".".join(map(str, minimum))
+    raise SystemExit(f"Python {required}+ is required, but {version} is active. Load a newer Python module before setup.")
+PY
+
 if [[ ! -d "$VENV" ]]; then
   echo "[setup] creating virtual environment"
   "$PYTHON_BIN" -m venv "$VENV"
