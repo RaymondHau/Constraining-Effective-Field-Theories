@@ -17,8 +17,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_DIR"
 
-mkdir -p logs/slurm
-
 if command -v module >/dev/null 2>&1; then
   if [[ "${MODULE_PURGE:-1}" == "1" ]]; then
     module purge
@@ -37,6 +35,8 @@ fi
 
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-${SLURM_CPUS_PER_TASK:-1}}"
 export MKL_NUM_THREADS="${MKL_NUM_THREADS:-${SLURM_CPUS_PER_TASK:-1}}"
+export EFT_LOG_DIR="${EFT_LOG_DIR:-$HOME/eft_slurm_logs/${SLURM_JOB_NAME:-eft}/${SLURM_JOB_ID:-manual}}"
+mkdir -p "$EFT_LOG_DIR"
 
 CONFIG="${1:-configs/paper_10m/event_generation.json}"
 exec ./run_event_generation.sh "$CONFIG"

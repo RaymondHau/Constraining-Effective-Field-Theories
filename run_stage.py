@@ -40,7 +40,7 @@ def main() -> int:
     config = load_config(config_path)
 
     python_bin = os.environ.get("PYTHON_BIN", sys.executable)
-    log_dir = Path(config.get("log_dir", "logs/script_workflow_logs"))
+    log_dir = Path(os.environ.get("EFT_LOG_DIR", config.get("log_dir", "logs/script_workflow_logs")))
     if not log_dir.is_absolute():
         log_dir = (PROJECT_DIR / log_dir).resolve()
 
