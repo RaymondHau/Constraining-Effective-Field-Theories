@@ -25,11 +25,15 @@ if command -v module >/dev/null 2>&1; then
   done
 fi
 
-if [[ -n "${VENV:-}" ]]; then
+VENV="${VENV:-$HOME/eft_venv}"
+if [[ -d "$VENV" ]]; then
   source "$VENV/bin/activate"
 elif [[ -n "${CONDA_ENV:-}" ]] && command -v conda >/dev/null 2>&1; then
   source "$(conda info --base)/etc/profile.d/conda.sh"
   conda activate "$CONDA_ENV"
+else
+  echo "Virtual environment not found at $VENV. Run: bash slurm/setup_environment.sh" >&2
+  exit 1
 fi
 
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-${SLURM_CPUS_PER_TASK:-1}}"
