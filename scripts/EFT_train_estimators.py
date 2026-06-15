@@ -17,9 +17,11 @@ from __future__ import annotations
 import math
 import os
 import json
+import time
+import hashlib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, Tuple
+from typing import Dict, Iterable, List, Mapping, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -37,6 +39,48 @@ except Exception:
 plt.rcParams.update({"figure.figsize": (7, 4), "axes.grid": True})
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 print("Using device:", DEVICE)
+SCRIPT_START = time.monotonic()
+LAST_TIMING_MARK = SCRIPT_START
+
+
+def format_duration(seconds: float) -> str:
+    """Format elapsed seconds as compact human-readable time."""
+    if seconds < 60.0:
+        return f"{seconds:.1f}s"
+    minutes, remainder = divmod(seconds, 60.0)
+    if minutes < 60.0:
+        return f"{int(minutes)}m {remainder:.1f}s"
+    hours, minutes = divmod(minutes, 60.0)
+    return f"{int(hours)}h {int(minutes)}m {remainder:.1f}s"
+
+
+def log_timing(label: str) -> None:
+    """Print time spent since the previous checkpoint and since script start."""
+    global LAST_TIMING_MARK
+    now = time.monotonic()
+    print(
+        f"[timing] {label}: step={format_duration(now - LAST_TIMING_MARK)}, "
+        f"total={format_duration(now - SCRIPT_START)}",
+        flush=True,
+    )
+    LAST_TIMING_MARK = now
+
+
+def progress_text(done: int, total: int | None) -> str:
+    """Return row progress with percentage when a total is available."""
+    if total and total > 0:
+        return f"{done:,}/{total:,} rows ({100.0 * done / total:.1f}%)"
+    return f"{done:,} rows"
+
+
+def progress_percent_line(done: int, total: int | None, elapsed: float) -> str:
+    """Return compact percent progress and percent-per-second throughput."""
+    if total and total > 0:
+        percent = 100.0 * done / total
+        percent_rate = percent / elapsed if elapsed > 0.0 else float("nan")
+        return f"[progress] ({percent:.1f}%) in {format_duration(elapsed)} ({percent_rate:.2f} percent per second)"
+    rate = done / elapsed if elapsed > 0.0 else float("nan")
+    return f"[progress] ({done:,} rows) in {format_duration(elapsed)} ({rate:,.0f} rows per second)"
 
 
 # ## 2. Configuration
@@ -92,6 +136,8 @@ FEATURE_COLUMNS = ["pt_j1", "delta_phi_jj", "met"]
 EFT_OPERATORS = ["CWL2", "CPWL2"]
 SPLITS = ["train", "validation", "test"]
 METHODS = ["RASCAL", "CASCAL", "ALICES"]
+METHOD_CONFIGS = {method: {} for method in METHODS}
+RATIO_METHODS = {"RASCAL", "CASCAL", "ALICES"}
 
 TRAINING_CONFIG = {
     "batch_size": 4096,
@@ -102,14 +148,41 @@ TRAINING_CONFIG = {
     "hidden_layers": [1024, 1024, 1024, 1024, 1024],    #[1024, 1024, 256, 128]
     "dropout": 0.0,
     "feature_noise_std": 0.0,
-    "alpha": 0.10,
     "gradient_clip": 1000000.0,
     "patience": 200,
     "min_delta": 1.0e-6,
     "seed": 1234,
     "activation": "tanh",
     "csv_chunk_rows": 100_000,
+    "cache_train_tensors": True,
+    "training_cache_subdir": "tensor_cache",
+    "group_ratio_methods": True,
 }
+
+
+def normalize_methods(raw_methods: Iterable[object]) -> Tuple[List[str], Dict[str, Dict[str, object]]]:
+    """Return method names and per-method config from JSON objects."""
+    names: List[str] = []
+    configs: Dict[str, Dict[str, object]] = {}
+    for entry in raw_methods:
+        if not isinstance(entry, Mapping):
+            raise TypeError(f"Unsupported method entry {entry!r}; expected an object with name and alpha.")
+        name = str(entry.get("name", entry.get("method"))).upper()
+        if name in {"", "NONE"}:
+            raise ValueError(f"Method config entry is missing a name: {entry!r}")
+        method_config = {str(key): value for key, value in entry.items() if key not in {"name", "method"}}
+        if "alpha" not in method_config:
+            raise KeyError(f"Method {name!r} is missing required alpha.")
+        names.append(name)
+        configs[name] = method_config
+    return names, configs
+
+
+def method_alpha(method: str) -> float:
+    """Return the score-loss weight configured for one estimator."""
+    if "alpha" not in METHOD_CONFIGS.get(method, {}):
+        raise KeyError(f"Missing required alpha for training method {method!r}.")
+    return float(METHOD_CONFIGS[method]["alpha"])
 
 
 def load_workflow_config() -> Dict:
@@ -134,16 +207,18 @@ if "feature_columns" in _PHYSICS_CONFIG:
     FEATURE_COLUMNS = list(_PHYSICS_CONFIG["feature_columns"])
 if "eft_operators" in _PHYSICS_CONFIG:
     EFT_OPERATORS = list(_PHYSICS_CONFIG["eft_operators"])
-if "methods" in _TRAINING_SECTION:
-    METHODS = list(_TRAINING_SECTION["methods"])
-if "methods" in _STAGE_CONFIG:
-    METHODS = list(_STAGE_CONFIG["methods"])
 if "training_config" in _TRAINING_SECTION:
     TRAINING_CONFIG.update(_TRAINING_SECTION["training_config"])
 if "training_config" in _STAGE_CONFIG:
     TRAINING_CONFIG.update(_STAGE_CONFIG["training_config"])
+if "methods" in _TRAINING_SECTION:
+    METHODS, METHOD_CONFIGS = normalize_methods(_TRAINING_SECTION["methods"])
+if "methods" in _STAGE_CONFIG:
+    METHODS, METHOD_CONFIGS = normalize_methods(_STAGE_CONFIG["methods"])
 print("Training methods:", METHODS)
+print("Method configs:", METHOD_CONFIGS)
 print("Training config:", TRAINING_CONFIG)
+log_timing("configuration loaded")
 
 
 # ## 3. Load Prepared Samples
@@ -180,10 +255,13 @@ def validate_required_columns(path: Path, required_columns: list[str]) -> None:
 
 for split in SPLITS:
     validate_required_columns(ratio_paths[split], required_ratio)
-    validate_required_columns(local_paths[split], required_local)
+    if split == "train" or "SALLINO" in METHODS:
+        validate_required_columns(local_paths[split], required_local)
 
 ratio_frames = {split: read_required_csv(ratio_paths[split], usecols=required_ratio) for split in ["validation", "test"]}
-local_frames = {split: read_required_csv(local_paths[split], usecols=required_local) for split in ["validation", "test"]}
+local_frames = {}
+if "SALLINO" in METHODS:
+    local_frames = {split: read_required_csv(local_paths[split], usecols=required_local) for split in ["validation", "test"]}
 
 summary_path = INPUT_DIR / "sample_summary.csv"
 if summary_path.exists():
@@ -193,7 +271,23 @@ if summary_path.exists():
 else:
     print("Prepared sample row summary not found; train CSVs will be streamed without pre-counting.")
 print("Loaded validation/test ratio rows:", {split: len(frame) for split, frame in ratio_frames.items()})
-print("Loaded validation/test local rows:", {split: len(frame) for split, frame in local_frames.items()})
+if local_frames:
+    print("Loaded validation/test local rows:", {split: len(frame) for split, frame in local_frames.items()})
+log_timing("validated headers and loaded validation/test samples")
+
+
+def expected_rows(kind: str, split: str) -> int | None:
+    """Return expected rows from sample_summary.csv when available."""
+    if "sample_summary" not in globals():
+        return None
+    row = sample_summary.loc[sample_summary["split"] == split]
+    column = f"{kind}_rows"
+    if row.empty or column not in row.columns:
+        return None
+    value = row.iloc[0][column]
+    if pd.isna(value):
+        return None
+    return int(value)
 
 
 # ## 4. Datasets and Normalization
@@ -229,36 +323,199 @@ score_columns = [f"score_{name}" for name in EFT_OPERATORS]
 CSV_CHUNK_ROWS = int(TRAINING_CONFIG.get("csv_chunk_rows", 100_000))
 
 
-def fit_standardizer_from_csv(sources: list[Tuple[Path, list[str]]]) -> Standardizer:
-    """Fit a standardizer by streaming selected columns from one or more CSV files."""
-    total_count = 0
-    total_sum = None
-    total_sumsq = None
-    for path, columns in sources:
-        print(f"Fitting scaler from {path.name}: {columns}", flush=True)
-        for chunk_index, chunk in enumerate(pd.read_csv(path, usecols=columns, chunksize=CSV_CHUNK_ROWS), start=1):
-            values = chunk[columns].to_numpy(dtype=np.float64)
-            if total_sum is None:
-                total_sum = np.zeros(values.shape[1], dtype=np.float64)
-                total_sumsq = np.zeros(values.shape[1], dtype=np.float64)
-            total_count += len(values)
-            total_sum += values.sum(axis=0)
-            total_sumsq += np.square(values).sum(axis=0)
-            if chunk_index == 1 or chunk_index % 10 == 0:
-                print(f"  {path.name}: scaler rows processed {total_count:,}", flush=True)
-    if total_count == 0 or total_sum is None or total_sumsq is None:
+def empty_stats(width: int) -> Dict[str, object]:
+    return {"count": 0, "sum": np.zeros(width, dtype=np.float64), "sumsq": np.zeros(width, dtype=np.float64)}
+
+
+def update_stats(stats: Dict[str, object], values: np.ndarray) -> None:
+    stats["count"] = int(stats["count"]) + len(values)
+    stats["sum"] += values.sum(axis=0)
+    stats["sumsq"] += np.square(values).sum(axis=0)
+
+
+def stats_to_standardizer(stats: Dict[str, object]) -> Standardizer:
+    count = int(stats["count"])
+    if count == 0:
         raise RuntimeError("Cannot fit scaler from empty CSV input")
-    mean_1d = total_sum / total_count
-    variance_1d = np.maximum(total_sumsq / total_count - np.square(mean_1d), 0.0)
+    mean_1d = stats["sum"] / count
+    variance_1d = np.maximum(stats["sumsq"] / count - np.square(mean_1d), 0.0)
     scale_1d = np.sqrt(variance_1d)
     scale_1d = np.where(scale_1d > 0.0, scale_1d, 1.0)
     return Standardizer(mean_1d[None, :].astype(np.float32), scale_1d[None, :].astype(np.float32))
 
 
-feature_scaler = fit_standardizer_from_csv([(ratio_paths["train"], FEATURE_COLUMNS)])
-theta_scaler = fit_standardizer_from_csv([(ratio_paths["train"], theta0_columns)])
-log_r_scaler = fit_standardizer_from_csv([(ratio_paths["train"], ["log_r"])])
-score_scaler = fit_standardizer_from_csv([(ratio_paths["train"], score_columns), (local_paths["train"], score_columns)])
+def fit_training_scalers() -> Tuple[Standardizer, Standardizer, Standardizer, Standardizer]:
+    """Fit all training scalers with one ratio CSV pass and one local-score CSV pass."""
+    feature_stats = empty_stats(len(FEATURE_COLUMNS))
+    theta_stats = empty_stats(len(theta0_columns))
+    log_r_stats = empty_stats(1)
+    score_stats = empty_stats(len(score_columns))
+
+    ratio_columns = list(dict.fromkeys(FEATURE_COLUMNS + theta0_columns + ["log_r"] + score_columns))
+    print(f"Fitting ratio scalers from {ratio_paths['train'].name}", flush=True)
+    ratio_count = 0
+    ratio_start = time.monotonic()
+    ratio_total = expected_rows("ratio", "train")
+    for chunk_index, chunk in enumerate(pd.read_csv(ratio_paths["train"], usecols=ratio_columns, chunksize=CSV_CHUNK_ROWS), start=1):
+        update_stats(feature_stats, chunk[FEATURE_COLUMNS].to_numpy(dtype=np.float64))
+        update_stats(theta_stats, chunk[theta0_columns].to_numpy(dtype=np.float64))
+        update_stats(log_r_stats, chunk[["log_r"]].to_numpy(dtype=np.float64))
+        update_stats(score_stats, chunk[score_columns].to_numpy(dtype=np.float64))
+        ratio_count += len(chunk)
+        if chunk_index == 1 or chunk_index % 10 == 0:
+            elapsed = time.monotonic() - ratio_start
+            rate = ratio_count / elapsed if elapsed > 0.0 else float("nan")
+            print(
+                f"  {ratio_paths['train'].name}: scaler progress {progress_text(ratio_count, ratio_total)} "
+                f"in {format_duration(elapsed)} ({rate:,.0f} rows/s)",
+                flush=True,
+            )
+
+    print(f"Fitting score scaler contribution from {local_paths['train'].name}", flush=True)
+    local_count = 0
+    local_start = time.monotonic()
+    local_total = expected_rows("local", "train")
+    for chunk_index, chunk in enumerate(pd.read_csv(local_paths["train"], usecols=score_columns, chunksize=CSV_CHUNK_ROWS), start=1):
+        update_stats(score_stats, chunk[score_columns].to_numpy(dtype=np.float64))
+        local_count += len(chunk)
+        if chunk_index == 1 or chunk_index % 10 == 0:
+            elapsed = time.monotonic() - local_start
+            rate = local_count / elapsed if elapsed > 0.0 else float("nan")
+            print(
+                f"  {local_paths['train'].name}: scaler progress {progress_text(local_count, local_total)} "
+                f"in {format_duration(elapsed)} ({rate:,.0f} rows/s)",
+                flush=True,
+            )
+
+    return (
+        stats_to_standardizer(feature_stats),
+        stats_to_standardizer(theta_stats),
+        stats_to_standardizer(log_r_stats),
+        stats_to_standardizer(score_stats),
+    )
+
+
+feature_scaler, theta_scaler, log_r_scaler, score_scaler = fit_training_scalers()
+log_timing("fitted training scalers")
+
+
+def scaler_signature(scaler: Standardizer) -> Dict[str, object]:
+    """Return JSON-serializable scaler metadata for cache invalidation."""
+    return {"mean": scaler.mean.tolist(), "scale": scaler.scale.tolist()}
+
+
+def cache_signature(kind: str, path: Path, usecols: list[str]) -> Tuple[str, Dict[str, object]]:
+    """Return a stable cache key and manifest payload for preprocessed tensors."""
+    stat = path.stat()
+    payload = {
+        "kind": kind,
+        "path": str(path.resolve()),
+        "size": stat.st_size,
+        "mtime_ns": stat.st_mtime_ns,
+        "usecols": usecols,
+        "feature_columns": FEATURE_COLUMNS,
+        "theta0_columns": theta0_columns,
+        "theta_columns": theta_columns,
+        "score_columns": score_columns,
+        "csv_chunk_rows": CSV_CHUNK_ROWS,
+        "scalers": {
+            "feature": scaler_signature(feature_scaler),
+            "theta": scaler_signature(theta_scaler),
+            "log_r": scaler_signature(log_r_scaler),
+            "score": scaler_signature(score_scaler),
+        },
+    }
+    encoded = json.dumps(payload, sort_keys=True).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()[:16], payload
+
+
+def torch_load_cpu(path: Path) -> Dict[str, torch.Tensor]:
+    """Load a tensor chunk on CPU across PyTorch versions."""
+    try:
+        return torch.load(path, map_location="cpu", weights_only=True)
+    except TypeError:
+        return torch.load(path, map_location="cpu")
+
+
+def build_ratio_payload(frame: pd.DataFrame) -> Dict[str, torch.Tensor]:
+    """Convert one ratio CSV chunk into standardized CPU tensors."""
+    return {
+        "features": torch.as_tensor(feature_scaler.transform(frame[FEATURE_COLUMNS].to_numpy(dtype=np.float32)), dtype=torch.float32),
+        "theta": torch.as_tensor(theta_scaler.transform(frame[theta0_columns].to_numpy(dtype=np.float32)), dtype=torch.float32),
+        "y": torch.as_tensor(frame[["y"]].to_numpy(dtype=np.float32), dtype=torch.float32),
+        "soft_y": torch.as_tensor(frame[["soft_y"]].to_numpy(dtype=np.float32), dtype=torch.float32),
+        "log_r": torch.as_tensor(frame[["log_r"]].to_numpy(dtype=np.float32), dtype=torch.float32),
+        "log_r_scaled": torch.as_tensor(log_r_scaler.transform(frame[["log_r"]].to_numpy(dtype=np.float32)), dtype=torch.float32),
+        "score": torch.as_tensor(frame[score_columns].to_numpy(dtype=np.float32), dtype=torch.float32),
+        "score_scaled": torch.as_tensor(score_scaler.transform(frame[score_columns].to_numpy(dtype=np.float32)), dtype=torch.float32),
+    }
+
+
+def build_local_payload(frame: pd.DataFrame) -> Dict[str, torch.Tensor]:
+    """Convert one local-score CSV chunk into standardized CPU tensors."""
+    return {
+        "features": torch.as_tensor(feature_scaler.transform(frame[FEATURE_COLUMNS].to_numpy(dtype=np.float32)), dtype=torch.float32),
+        "theta": torch.as_tensor(theta_scaler.transform(frame[theta_columns].to_numpy(dtype=np.float32)), dtype=torch.float32),
+        "score": torch.as_tensor(frame[score_columns].to_numpy(dtype=np.float32), dtype=torch.float32),
+        "score_scaled": torch.as_tensor(score_scaler.transform(frame[score_columns].to_numpy(dtype=np.float32)), dtype=torch.float32),
+    }
+
+
+def prepare_tensor_cache(
+    kind: str,
+    path: Path,
+    usecols: list[str],
+    payload_builder,
+) -> list[Path] | None:
+    """Build or reuse standardized training tensor chunks for a CSV source."""
+    if not bool(TRAINING_CONFIG.get("cache_train_tensors", True)):
+        return None
+
+    key, manifest_payload = cache_signature(kind, path, usecols)
+    cache_root = INPUT_DIR / str(TRAINING_CONFIG.get("training_cache_subdir", "tensor_cache"))
+    cache_dir = cache_root / f"{kind}_{key}"
+    manifest_path = cache_dir / "manifest.json"
+    if manifest_path.exists():
+        with open(manifest_path, "r", encoding="utf-8") as handle:
+            manifest = json.load(handle)
+        chunk_paths = [cache_dir / name for name in manifest.get("chunks", [])]
+        if manifest.get("signature") == manifest_payload and chunk_paths and all(chunk.exists() for chunk in chunk_paths):
+            print(f"Using cached {kind} training tensors from {cache_dir}", flush=True)
+            return chunk_paths
+
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    print(f"Building cached {kind} training tensors in {cache_dir}", flush=True)
+    chunk_names = []
+    row_count = 0
+    cache_start = time.monotonic()
+    expected_total = expected_rows(kind, "train")
+    for chunk_index, frame in enumerate(pd.read_csv(path, usecols=usecols, chunksize=CSV_CHUNK_ROWS), start=1):
+        payload = payload_builder(frame)
+        chunk_name = f"chunk_{chunk_index:06d}.pt"
+        torch.save(payload, cache_dir / chunk_name)
+        chunk_names.append(chunk_name)
+        row_count += len(frame)
+        if chunk_index == 1 or chunk_index % 10 == 0:
+            elapsed = time.monotonic() - cache_start
+            rate = row_count / elapsed if elapsed > 0.0 else float("nan")
+            print(
+                f"  cached {kind} chunk {chunk_index}: {progress_text(row_count, expected_total)} "
+                f"in {format_duration(elapsed)} ({rate:,.0f} rows/s)",
+                flush=True,
+            )
+
+    manifest = {"signature": manifest_payload, "chunks": chunk_names, "rows": row_count}
+    with open(manifest_path, "w", encoding="utf-8") as handle:
+        json.dump(manifest, handle, indent=2)
+    return [cache_dir / name for name in chunk_names]
+
+
+def yield_payload_batches(payload: Dict[str, torch.Tensor], batch_size: int):
+    """Yield fixed-size batch slices from one tensor payload."""
+    rows = int(payload["features"].shape[0])
+    for start in range(0, rows, batch_size):
+        stop = min(start + batch_size, rows)
+        yield {key: value[start:stop] for key, value in payload.items()}
 
 
 class RatioDataset(Dataset):
@@ -316,64 +573,69 @@ class RatioCSVBatchDataset(IterableDataset):
     """Stream ratio training batches from CSV chunks."""
     def __init__(self, path: Path):
         self.path = path
+        self.cache_chunks = prepare_tensor_cache("ratio", path, required_ratio, build_ratio_payload)
 
     def __iter__(self):
         batch_size = int(TRAINING_CONFIG["batch_size"])
+        if self.cache_chunks is not None:
+            for chunk_index, chunk_path in enumerate(self.cache_chunks, start=1):
+                if chunk_index == 1 or chunk_index % 10 == 0:
+                    print(f"Streaming cached {self.path.name} chunk {chunk_index}", flush=True)
+                yield from yield_payload_batches(torch_load_cpu(chunk_path), batch_size)
+            return
+
         for chunk_index, frame in enumerate(pd.read_csv(self.path, usecols=required_ratio, chunksize=CSV_CHUNK_ROWS), start=1):
             if chunk_index == 1 or chunk_index % 10 == 0:
                 print(f"Streaming {self.path.name} chunk {chunk_index} ({len(frame):,} rows)", flush=True)
-            payload = {
-                "features": torch.as_tensor(feature_scaler.transform(frame[FEATURE_COLUMNS].to_numpy(dtype=np.float32)), dtype=torch.float32),
-                "theta": torch.as_tensor(theta_scaler.transform(frame[theta0_columns].to_numpy(dtype=np.float32)), dtype=torch.float32),
-                "y": torch.as_tensor(frame[["y"]].to_numpy(dtype=np.float32), dtype=torch.float32),
-                "soft_y": torch.as_tensor(frame[["soft_y"]].to_numpy(dtype=np.float32), dtype=torch.float32),
-                "log_r": torch.as_tensor(frame[["log_r"]].to_numpy(dtype=np.float32), dtype=torch.float32),
-                "log_r_scaled": torch.as_tensor(log_r_scaler.transform(frame[["log_r"]].to_numpy(dtype=np.float32)), dtype=torch.float32),
-                "score": torch.as_tensor(frame[score_columns].to_numpy(dtype=np.float32), dtype=torch.float32),
-                "score_scaled": torch.as_tensor(score_scaler.transform(frame[score_columns].to_numpy(dtype=np.float32)), dtype=torch.float32),
-            }
-            for start in range(0, len(frame), batch_size):
-                stop = min(start + batch_size, len(frame))
-                yield {key: value[start:stop] for key, value in payload.items()}
+            yield from yield_payload_batches(build_ratio_payload(frame), batch_size)
 
 
 class LocalCSVBatchDataset(IterableDataset):
     """Stream local-score training batches from CSV chunks."""
     def __init__(self, path: Path):
         self.path = path
+        self.cache_chunks = prepare_tensor_cache("local", path, required_local, build_local_payload)
 
     def __iter__(self):
         batch_size = int(TRAINING_CONFIG["batch_size"])
+        if self.cache_chunks is not None:
+            for chunk_index, chunk_path in enumerate(self.cache_chunks, start=1):
+                if chunk_index == 1 or chunk_index % 10 == 0:
+                    print(f"Streaming cached {self.path.name} chunk {chunk_index}", flush=True)
+                yield from yield_payload_batches(torch_load_cpu(chunk_path), batch_size)
+            return
+
         for chunk_index, frame in enumerate(pd.read_csv(self.path, usecols=required_local, chunksize=CSV_CHUNK_ROWS), start=1):
             if chunk_index == 1 or chunk_index % 10 == 0:
                 print(f"Streaming {self.path.name} chunk {chunk_index} ({len(frame):,} rows)", flush=True)
-            payload = {
-                "features": torch.as_tensor(feature_scaler.transform(frame[FEATURE_COLUMNS].to_numpy(dtype=np.float32)), dtype=torch.float32),
-                "theta": torch.as_tensor(theta_scaler.transform(frame[theta_columns].to_numpy(dtype=np.float32)), dtype=torch.float32),
-                "score": torch.as_tensor(frame[score_columns].to_numpy(dtype=np.float32), dtype=torch.float32),
-                "score_scaled": torch.as_tensor(score_scaler.transform(frame[score_columns].to_numpy(dtype=np.float32)), dtype=torch.float32),
-            }
-            for start in range(0, len(frame), batch_size):
-                stop = min(start + batch_size, len(frame))
-                yield {key: value[start:stop] for key, value in payload.items()}
+            yield from yield_payload_batches(build_local_payload(frame), batch_size)
 
 
 def make_loader(dataset: Dataset, shuffle: bool) -> DataLoader:
     """Return a DataLoader with the configured batch size."""
     # Iterable CSV datasets yield already-batched dictionaries.
     if isinstance(dataset, IterableDataset):
-        return DataLoader(dataset, batch_size=None)
-    return DataLoader(dataset, batch_size=TRAINING_CONFIG["batch_size"], shuffle=shuffle, drop_last=False)
+        return DataLoader(dataset, batch_size=None, pin_memory=(DEVICE == "cuda"))
+    return DataLoader(
+        dataset,
+        batch_size=TRAINING_CONFIG["batch_size"],
+        shuffle=shuffle,
+        drop_last=False,
+        pin_memory=(DEVICE == "cuda"),
+    )
 
 
 ratio_loaders = {
     "train": make_loader(RatioCSVBatchDataset(ratio_paths["train"]), shuffle=False),
     **{split: make_loader(RatioDataset(frame), shuffle=False) for split, frame in ratio_frames.items()},
 }
-local_loaders = {
-    "train": make_loader(LocalCSVBatchDataset(local_paths["train"]), shuffle=False),
-    **{split: make_loader(LocalScoreDataset(frame), shuffle=False) for split, frame in local_frames.items()},
-}
+local_loaders = {}
+if "SALLINO" in METHODS:
+    local_loaders = {
+        "train": make_loader(LocalCSVBatchDataset(local_paths["train"]), shuffle=False),
+        **{split: make_loader(LocalScoreDataset(frame), shuffle=False) for split, frame in local_frames.items()},
+    }
+log_timing("built datasets, loaders, and training tensor caches")
 
 
 # ## 5. Model Definitions
@@ -463,7 +725,21 @@ def ratio_score_from_gradient(model: RatioEstimator, features: torch.Tensor, the
 def batch_to_device(batch: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
     """Move batch tensors to DEVICE."""
     # Move key-value dictionary tensors to target execution device
-    return {key: value.to(DEVICE) for key, value in batch.items()}
+    return {key: value.to(DEVICE, non_blocking=(DEVICE == "cuda")) for key, value in batch.items()}
+
+
+def set_parameter_grad_state(model: nn.Module, requires_grad: bool) -> list[bool]:
+    """Set parameter grad tracking and return the previous states."""
+    previous = [parameter.requires_grad for parameter in model.parameters()]
+    for parameter in model.parameters():
+        parameter.requires_grad_(requires_grad)
+    return previous
+
+
+def restore_parameter_grad_state(model: nn.Module, previous: list[bool]) -> None:
+    """Restore parameter grad tracking after validation or inference."""
+    for parameter, requires_grad in zip(model.parameters(), previous):
+        parameter.requires_grad_(requires_grad)
 
 
 def scaled_log_r_tensor(values: torch.Tensor) -> torch.Tensor:
@@ -482,7 +758,7 @@ def scaled_score_tensor(values: torch.Tensor) -> torch.Tensor:
     return (values - mean) / scale
 
 
-def ratio_loss(method: str, model: RatioEstimator, batch: Dict[str, torch.Tensor]) -> Tuple[torch.Tensor, Dict[str, float]]:
+def ratio_loss(method: str, model: RatioEstimator, batch: Dict[str, torch.Tensor]) -> Tuple[torch.Tensor, Dict[str, object]]:
     """Return the method-specific ratio loss for one batch."""
     # Predict log r and its gradient-based score
     log_r_pred, score_pred = ratio_score_from_gradient(model, batch["features"], batch["theta"])
@@ -502,26 +778,44 @@ def ratio_loss(method: str, model: RatioEstimator, batch: Dict[str, torch.Tensor
         raise ValueError(method)
 
     # Scale score loss weight by configuration alpha and return combined loss
-    total = main_loss + TRAINING_CONFIG["alpha"] * score_loss
-    return total, {"loss": float(total.detach().cpu()), "main_loss": float(main_loss.detach().cpu()), "score_loss": float(score_loss.detach().cpu())}
+    alpha = method_alpha(method)
+    total = main_loss + alpha * score_loss
+    return total, {
+        "loss": total.detach(),
+        "main_loss": main_loss.detach(),
+        "score_loss": score_loss.detach(),
+        "alpha": alpha,
+    }
 
 
-def sallino_loss(model: ScoreEstimator, batch: Dict[str, torch.Tensor]) -> Tuple[torch.Tensor, Dict[str, float]]:
+def sallino_loss(model: ScoreEstimator, batch: Dict[str, torch.Tensor]) -> Tuple[torch.Tensor, Dict[str, object]]:
     """Return the SALLINO direct score loss."""
     # Feed features and theta, compute prediction score
     score_pred = model(batch["features"], batch["theta"])
     # Return MSE loss between normalized prediction score and targets
     loss = nn.functional.mse_loss(scaled_score_tensor(score_pred), batch["score_scaled"])
-    return loss, {"loss": float(loss.detach().cpu()), "main_loss": math.nan, "score_loss": float(loss.detach().cpu())}
+    return loss, {"loss": loss.detach(), "main_loss": math.nan, "score_loss": loss.detach()}
 
 
-def train_method(method: str) -> Tuple[nn.Module, pd.DataFrame]:
-    """Train one estimator and return the best model plus history."""
-    # Fix execution seeds for reproducibility
+def mean_metric_values(metrics: list[Dict[str, object]]) -> Dict[str, float]:
+    """Average batch metrics with one device sync per metric."""
+    if not metrics:
+        return {}
+    averaged = {}
+    for column in metrics[0]:
+        values = [row[column] for row in metrics]
+        tensor_values = [value for value in values if torch.is_tensor(value)]
+        if tensor_values:
+            averaged[column] = float(torch.stack(tensor_values).mean().detach().cpu())
+        else:
+            averaged[column] = float(np.nanmean(np.asarray(values, dtype=np.float64)))
+    return averaged
+
+
+def make_method_components(method: str) -> Tuple[nn.Module, torch.optim.Optimizer, torch.optim.lr_scheduler.LRScheduler, Dict[str, DataLoader]]:
+    """Create the model, optimizer, scheduler, and loaders for one method."""
     torch.manual_seed(TRAINING_CONFIG["seed"])
     input_dim = len(FEATURE_COLUMNS) + len(EFT_OPERATORS)
-
-    # Initialize appropriate estimator type
     if method == "SALLINO":
         model = ScoreEstimator(input_dim, len(EFT_OPERATORS), TRAINING_CONFIG["hidden_layers"]).to(DEVICE)
         loaders = local_loaders
@@ -529,29 +823,73 @@ def train_method(method: str) -> Tuple[nn.Module, pd.DataFrame]:
         model = RatioEstimator(input_dim, TRAINING_CONFIG["hidden_layers"]).to(DEVICE)
         loaders = ratio_loaders
 
-    # Set up optimizer and scheduler
     optimizer = torch.optim.AdamW(model.parameters(), lr=TRAINING_CONFIG["learning_rate"], weight_decay=TRAINING_CONFIG["weight_decay"])
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer,
         T_max=TRAINING_CONFIG["epochs"],
         eta_min=TRAINING_CONFIG["min_learning_rate"],
     )
+    return model, optimizer, scheduler, loaders
+
+
+def save_trained_method(method: str, model: nn.Module, history_rows: list[Dict[str, float]] | pd.DataFrame) -> pd.DataFrame:
+    """Save a trained model checkpoint and history CSV."""
+    history = history_rows if isinstance(history_rows, pd.DataFrame) else pd.DataFrame(history_rows)
+    effective_training_config = dict(TRAINING_CONFIG)
+    effective_training_config["alpha"] = method_alpha(method)
+    torch.save(
+        {
+            "method": method,
+            "state_dict": model.state_dict(),
+            "training_config": effective_training_config,
+            "method_config": dict(METHOD_CONFIGS.get(method, {})),
+            "scalers": {
+                "feature": {"mean": feature_scaler.mean, "scale": feature_scaler.scale},
+                "theta": {"mean": theta_scaler.mean, "scale": theta_scaler.scale},
+                "log_r": {"mean": log_r_scaler.mean, "scale": log_r_scaler.scale},
+                "score": {"mean": score_scaler.mean, "scale": score_scaler.scale},
+            },
+        },
+        MODEL_DIR / f"{method.lower()}.pt",
+    )
+    history.to_csv(MODEL_DIR / f"{method.lower()}_history.csv", index=False)
+    return history
+
+
+def train_method(method: str, method_index: int, method_count: int) -> Tuple[nn.Module, pd.DataFrame]:
+    """Train one estimator and return the best model plus history."""
+    method_start = time.monotonic()
+    print(f"[progress] Starting {method} ({method_index}/{method_count})", flush=True)
+    model, optimizer, scheduler, loaders = make_method_components(method)
 
     print(f"{method}: {sum(isinstance(module, nn.Dropout) for module in model.modules())} dropout layers, p={TRAINING_CONFIG['dropout']}")
+    log_timing(f"{method} model, optimizer, and scheduler initialized")
     history = []
     best_state = None
     best_val = float("inf")
     stale_epochs = 0
+    epochs = int(TRAINING_CONFIG["epochs"])
+    progress_interval_rows = int(TRAINING_CONFIG.get("progress_interval_rows", max(int(TRAINING_CONFIG["batch_size"]) * 10, 1)))
+    train_total = expected_rows("local" if method == "SALLINO" else "ratio", "train")
+    validation_total = expected_rows("local" if method == "SALLINO" else "ratio", "validation")
+    training_loop_start = time.monotonic()
 
     # Start training epoch loop
-    for epoch in range(1, TRAINING_CONFIG["epochs"] + 1):
+    for epoch in range(1, epochs + 1):
+        epoch_start = time.monotonic()
+        current_lr = optimizer.param_groups[0]["lr"]
+        print(f"[progress] {method} epoch {epoch}/{epochs}, methods ['{method}'], lr={current_lr:.3e}", flush=True)
         model.train()
         train_metrics = []
         noise_std = float(TRAINING_CONFIG.get("feature_noise_std", 0.0))
+        train_rows = 0
+        train_start = time.monotonic()
+        next_train_progress = progress_interval_rows
 
         # Batch iteration
         for batch in loaders["train"]:
             batch = batch_to_device(batch)
+            train_rows += int(batch["features"].shape[0])
             # Add optional jitter noise to features
             if noise_std > 0.0:
                 batch = dict(batch)
@@ -565,21 +903,33 @@ def train_method(method: str) -> Tuple[nn.Module, pd.DataFrame]:
                 nn.utils.clip_grad_norm_(model.parameters(), TRAINING_CONFIG["gradient_clip"])
             optimizer.step()
             train_metrics.append(metrics)
+            if train_rows >= next_train_progress or (train_total and train_rows >= train_total):
+                elapsed = time.monotonic() - train_start
+                print(progress_percent_line(train_rows, train_total, elapsed), flush=True)
+                next_train_progress += progress_interval_rows
+        train_elapsed = time.monotonic() - train_start
 
         # Batch validation
         model.eval()
         val_metrics = []
-        for batch in loaders["validation"]:
-            batch = batch_to_device(batch)
-            loss, metrics = sallino_loss(model, batch) if method == "SALLINO" else ratio_loss(method, model, batch)
-            val_metrics.append(metrics)
+        validation_rows = 0
+        validation_start = time.monotonic()
+        parameter_grad_state = set_parameter_grad_state(model, False)
+        try:
+            for batch in loaders["validation"]:
+                batch = batch_to_device(batch)
+                validation_rows += int(batch["features"].shape[0])
+                loss, metrics = sallino_loss(model, batch) if method == "SALLINO" else ratio_loss(method, model, batch)
+                val_metrics.append(metrics)
+        finally:
+            restore_parameter_grad_state(model, parameter_grad_state)
+        validation_elapsed = time.monotonic() - validation_start
 
         # Compute average metrics across splits
         row = {"method": method, "epoch": epoch, "learning_rate": optimizer.param_groups[0]["lr"]}
         for prefix, metrics in [("train", train_metrics), ("validation", val_metrics)]:
-            frame = pd.DataFrame(metrics)
-            for column in frame:
-                row[f"{prefix}_{column}"] = float(frame[column].mean())
+            for column, value in mean_metric_values(metrics).items():
+                row[f"{prefix}_{column}"] = value
         history.append(row)
 
         # Check early stopping progress
@@ -591,7 +941,12 @@ def train_method(method: str) -> Tuple[nn.Module, pd.DataFrame]:
         else:
             stale_epochs += 1
 
-        print(f"{method} epoch {epoch:03d}: lr={row['learning_rate']:.3e}, train={row['train_loss']:.4g}, val={val_loss:.4g}")
+        epoch_elapsed = time.monotonic() - epoch_start
+        print(
+            f"[results] epoch {epoch:03d}, epoch time={epoch_elapsed:.1f}s, total time={time.monotonic() - training_loop_start:.1f}s:\n"
+            f"{method} train={row['train_loss']:.4g}, val={val_loss:.4g}",
+            flush=True,
+        )
         scheduler.step()
         if stale_epochs >= TRAINING_CONFIG["patience"]:
             print(f"{method}: early stopping after {epoch} epochs; best validation loss {best_val:.4g}")
@@ -600,23 +955,138 @@ def train_method(method: str) -> Tuple[nn.Module, pd.DataFrame]:
     # Restore parameters of the best model checkpoint and serialize results
     if best_state is not None:
         model.load_state_dict(best_state)
-    history = pd.DataFrame(history)
-    torch.save(
-        {
-            "method": method,
-            "state_dict": model.state_dict(),
-            "training_config": TRAINING_CONFIG,
-            "scalers": {
-                "feature": {"mean": feature_scaler.mean, "scale": feature_scaler.scale},
-                "theta": {"mean": theta_scaler.mean, "scale": theta_scaler.scale},
-                "log_r": {"mean": log_r_scaler.mean, "scale": log_r_scaler.scale},
-                "score": {"mean": score_scaler.mean, "scale": score_scaler.scale},
-            },
-        },
-        MODEL_DIR / f"{method.lower()}.pt",
-    )
-    history.to_csv(MODEL_DIR / f"{method.lower()}_history.csv", index=False)
+    history = save_trained_method(method, model, history)
+    print(f"[timing] {method} total training and save time: {format_duration(time.monotonic() - method_start)}", flush=True)
     return model, history
+
+
+def train_ratio_methods_grouped(ratio_methods: list[str], start_index: int, method_count: int) -> Tuple[Dict[str, nn.Module], Dict[str, pd.DataFrame]]:
+    """Train ratio estimators together, reusing each streamed train/validation batch."""
+    group_start = time.monotonic()
+    print(
+        f"[progress] Starting grouped ratio training for {ratio_methods} "
+        f"(methods {start_index}-{start_index + len(ratio_methods) - 1}/{method_count})",
+        flush=True,
+    )
+
+    models: Dict[str, nn.Module] = {}
+    optimizers = {}
+    schedulers = {}
+    histories: Dict[str, list[Dict[str, float]]] = {method: [] for method in ratio_methods}
+    best_states = {method: None for method in ratio_methods}
+    best_values = {method: float("inf") for method in ratio_methods}
+    stale_epochs = {method: 0 for method in ratio_methods}
+    active = {method: True for method in ratio_methods}
+
+    for method in ratio_methods:
+        model, optimizer, scheduler, _ = make_method_components(method)
+        models[method] = model
+        optimizers[method] = optimizer
+        schedulers[method] = scheduler
+        print(f"{method}: {sum(isinstance(module, nn.Dropout) for module in model.modules())} dropout layers, p={TRAINING_CONFIG['dropout']}")
+    log_timing("grouped ratio models, optimizers, and schedulers initialized")
+
+    epochs = int(TRAINING_CONFIG["epochs"])
+    progress_interval_rows = int(TRAINING_CONFIG.get("progress_interval_rows", max(int(TRAINING_CONFIG["batch_size"]) * 10, 1)))
+    train_total = expected_rows("ratio", "train")
+    validation_total = expected_rows("ratio", "validation")
+    noise_std = float(TRAINING_CONFIG.get("feature_noise_std", 0.0))
+    training_loop_start = time.monotonic()
+
+    for epoch in range(1, epochs + 1):
+        active_methods = [method for method in ratio_methods if active[method]]
+        if not active_methods:
+            print("[progress] All grouped ratio methods stopped early.", flush=True)
+            break
+
+        epoch_start = time.monotonic()
+        current_lr = optimizers[active_methods[0]].param_groups[0]["lr"]
+        print(f"[progress] grouped ratio epoch {epoch}/{epochs}, methods {active_methods}, lr={current_lr:.3e}", flush=True)
+        for method in active_methods:
+            models[method].train()
+
+        train_metrics = {method: [] for method in active_methods}
+        train_rows = 0
+        train_start = time.monotonic()
+        next_train_progress = progress_interval_rows
+
+        for batch in ratio_loaders["train"]:
+            batch = batch_to_device(batch)
+            train_rows += int(batch["features"].shape[0])
+            for method in active_methods:
+                method_batch = batch
+                if noise_std > 0.0:
+                    method_batch = dict(batch)
+                    method_batch["features"] = batch["features"] + torch.randn_like(batch["features"]) * noise_std
+
+                optimizers[method].zero_grad(set_to_none=True)
+                loss, metrics = ratio_loss(method, models[method], method_batch)
+                loss.backward()
+                if TRAINING_CONFIG["gradient_clip"] is not None:
+                    nn.utils.clip_grad_norm_(models[method].parameters(), TRAINING_CONFIG["gradient_clip"])
+                optimizers[method].step()
+                train_metrics[method].append(metrics)
+
+            if train_rows >= next_train_progress or (train_total and train_rows >= train_total):
+                elapsed = time.monotonic() - train_start
+                print(progress_percent_line(train_rows, train_total, elapsed), flush=True)
+                next_train_progress += progress_interval_rows
+        train_elapsed = time.monotonic() - train_start
+
+        for method in active_methods:
+            models[method].eval()
+        val_metrics = {method: [] for method in active_methods}
+        validation_rows = 0
+        validation_start = time.monotonic()
+        parameter_grad_states = {method: set_parameter_grad_state(models[method], False) for method in active_methods}
+        try:
+            for batch in ratio_loaders["validation"]:
+                batch = batch_to_device(batch)
+                validation_rows += int(batch["features"].shape[0])
+                for method in active_methods:
+                    loss, metrics = ratio_loss(method, models[method], batch)
+                    val_metrics[method].append(metrics)
+        finally:
+            for method in active_methods:
+                restore_parameter_grad_state(models[method], parameter_grad_states[method])
+        validation_elapsed = time.monotonic() - validation_start
+
+        epoch_elapsed = time.monotonic() - epoch_start
+        result_lines = [
+            f"[results] epoch {epoch:03d}, epoch time={epoch_elapsed:.1f}s, total time={time.monotonic() - training_loop_start:.1f}s:"
+        ]
+        for method in active_methods:
+            row = {"method": method, "epoch": epoch, "learning_rate": optimizers[method].param_groups[0]["lr"]}
+            for prefix, metrics in [("train", train_metrics[method]), ("validation", val_metrics[method])]:
+                for column, value in mean_metric_values(metrics).items():
+                    row[f"{prefix}_{column}"] = value
+            histories[method].append(row)
+
+            val_loss = row["validation_loss"]
+            if val_loss < best_values[method] - TRAINING_CONFIG["min_delta"]:
+                best_values[method] = val_loss
+                best_states[method] = {key: value.detach().cpu().clone() for key, value in models[method].state_dict().items()}
+                stale_epochs[method] = 0
+            else:
+                stale_epochs[method] += 1
+
+            result_lines.append(f"{method} train={row['train_loss']:.4g}, val={val_loss:.4g}")
+        print("\n".join(result_lines), flush=True)
+
+        for method in active_methods:
+            schedulers[method].step()
+            if stale_epochs[method] >= TRAINING_CONFIG["patience"]:
+                active[method] = False
+                print(f"{method}: early stopping after {epoch} epochs; best validation loss {best_values[method]:.4g}")
+
+    saved_histories = {}
+    for method in ratio_methods:
+        if best_states[method] is not None:
+            models[method].load_state_dict(best_states[method])
+        saved_histories[method] = save_trained_method(method, models[method], histories[method])
+
+    print(f"[timing] grouped ratio training and save time: {format_duration(time.monotonic() - group_start)}", flush=True)
+    return models, saved_histories
 
 
 # ## 7. Train All Methods
@@ -627,12 +1097,26 @@ def train_method(method: str) -> Tuple[nn.Module, pd.DataFrame]:
 models = {}
 histories = {}
 
-for method in METHODS:
-    model, history = train_method(method)
+method_index = 1
+while method_index <= len(METHODS):
+    method = METHODS[method_index - 1]
+    if bool(TRAINING_CONFIG.get("group_ratio_methods", True)) and method in RATIO_METHODS:
+        grouped_methods = []
+        while method_index <= len(METHODS) and METHODS[method_index - 1] in RATIO_METHODS:
+            grouped_methods.append(METHODS[method_index - 1])
+            method_index += 1
+        grouped_models, grouped_histories = train_ratio_methods_grouped(grouped_methods, method_index - len(grouped_methods), len(METHODS))
+        models.update(grouped_models)
+        histories.update(grouped_histories)
+        continue
+
+    model, history = train_method(method, method_index, len(METHODS))
     models[method] = model
     histories[method] = history
+    method_index += 1
 
 print("Trained methods:", list(models))
+log_timing("trained all configured methods")
 
 
 # ## 8. Test Predictions
@@ -655,21 +1139,25 @@ def collect_ratio_predictions(method: str, model: nn.Module, loader: DataLoader)
     """Collect log-ratio and score predictions on ratio test samples."""
     rows = []
     model.eval()
+    parameter_grad_state = set_parameter_grad_state(model, False)
     # Iterate over test loader batches
-    for batch in loader:
-        batch = batch_to_device(batch)
-        # Predict physical values
-        log_r_pred, score_pred = ratio_score_from_gradient(model, batch["features"], batch["theta"])
-        payload = {
-            "method": method,
-            "log_r_true": batch["log_r"].detach().cpu().numpy().ravel(),
-            "log_r_pred": log_r_pred.detach().cpu().numpy().ravel(),
-        }
-        # Add ground truth and predicted scores for each operator parameter
-        for i, name in enumerate(EFT_OPERATORS):
-            payload[f"score_true_{name}"] = batch["score"][:, i].detach().cpu().numpy()
-            payload[f"score_pred_{name}"] = score_pred[:, i].detach().cpu().numpy()
-        rows.append(pd.DataFrame(payload))
+    try:
+        for batch in loader:
+            batch = batch_to_device(batch)
+            # Predict physical values
+            log_r_pred, score_pred = ratio_score_from_gradient(model, batch["features"], batch["theta"])
+            payload = {
+                "method": method,
+                "log_r_true": batch["log_r"].detach().cpu().numpy().ravel(),
+                "log_r_pred": log_r_pred.detach().cpu().numpy().ravel(),
+            }
+            # Add ground truth and predicted scores for each operator parameter
+            for i, name in enumerate(EFT_OPERATORS):
+                payload[f"score_true_{name}"] = batch["score"][:, i].detach().cpu().numpy()
+                payload[f"score_pred_{name}"] = score_pred[:, i].detach().cpu().numpy()
+            rows.append(pd.DataFrame(payload))
+    finally:
+        restore_parameter_grad_state(model, parameter_grad_state)
     # Combine predictions to a single dataframe
     return pd.concat(rows, ignore_index=True)
 
@@ -679,16 +1167,17 @@ def collect_sallino_predictions(model: nn.Module, loader: DataLoader) -> pd.Data
     rows = []
     model.eval()
     # Iterate over local test loader batches
-    for batch in loader:
-        batch = batch_to_device(batch)
-        # Direct score prediction
-        score_pred = model(batch["features"], batch["theta"])
-        payload = {"method": "SALLINO"}
-        # Append predicted operator scores
-        for i, name in enumerate(EFT_OPERATORS):
-            payload[f"score_true_{name}"] = batch["score"][:, i].detach().cpu().numpy()
-            payload[f"score_pred_{name}"] = score_pred[:, i].detach().cpu().numpy()
-        rows.append(pd.DataFrame(payload))
+    with torch.no_grad():
+        for batch in loader:
+            batch = batch_to_device(batch)
+            # Direct score prediction
+            score_pred = model(batch["features"], batch["theta"])
+            payload = {"method": "SALLINO"}
+            # Append predicted operator scores
+            for i, name in enumerate(EFT_OPERATORS):
+                payload[f"score_true_{name}"] = batch["score"][:, i].detach().cpu().numpy()
+                payload[f"score_pred_{name}"] = score_pred[:, i].detach().cpu().numpy()
+            rows.append(pd.DataFrame(payload))
     # Concatenate results into a single pandas dataframe
     return pd.concat(rows, ignore_index=True)
 

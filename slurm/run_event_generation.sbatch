@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+#SBATCH --job-name=eft_event_generation
+#SBATCH --output=slurm-%x-%j.out
+#SBATCH --error=slurm-%x-%j.err
+#SBATCH --time=24:00:00
+#SBATCH --cpus-per-task=2
+#SBATCH --mem=16G
+#SBATCH --partition=icelake
+#SBATCH --mail-type=END,FAIL
+#SBATCH --mail-user=rs2398@cam.ac.uk
+#SBATCH --account=mphil-dis-sl2-cpu
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$REPO_DIR"
+
+mkdir -p logs/slurm
+
+if command -v module >/dev/null 2>&1; then
+  if [[ "${MODULE_PURGE:-1}" == "1" ]]; then
+    module purge
+  fi
+  for module_name in ${MODULES:-python}; do
+    module load "$module_name"
+  done
+fi
+
+if [[ -n "${VENV:-}" ]]; then
+  source "$VENV/bin/activate"
+elif [[ -n "${CONDA_ENV:-}" ]] && command -v conda >/dev/null 2>&1; then
+  source "$(conda info --base)/etc/profile.d/conda.sh"
+  conda activate "$CONDA_ENV"
+fi
+
+export OMP_NUM_THREADS="${OMP_NUM_THREADS:-${SLURM_CPUS_PER_TASK:-1}}"
+export MKL_NUM_THREADS="${MKL_NUM_THREADS:-${SLURM_CPUS_PER_TASK:-1}}"
+
+CONFIG="${1:-configs/paper_10m/event_generation.json}"
+exec ./run_event_generation.sh "$CONFIG"

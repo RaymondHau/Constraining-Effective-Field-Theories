@@ -45,9 +45,18 @@
                 },
     "training":  {
                      "methods":  [
-                                     "RASCAL",
-                                     "CASCAL",
-                                     "ALICES"
+                                     {
+                                         "name":  "RASCAL",
+                                         "alpha":  10
+                                     },
+                                     {
+                                         "name":  "CASCAL",
+                                         "alpha":  10
+                                     },
+                                     {
+                                         "name":  "ALICES",
+                                         "alpha":  10
+                                     }
                                  ],
                      "training_config":  {
                                              "batch_size":  32768,
@@ -61,17 +70,20 @@
                                                                    100,
                                                                    100,
                                                                    100
-                                                               ],
+                                             ],
                                              "dropout":  0.0,
                                              "feature_noise_std":  0.0,
-                                             "alpha":  10,
                                              "gradient_clip":  1000000.0,
                                              "patience":  50,
                                              "min_delta":  1E-06,
                                              "seed":  1234,
                                              "plot_max_points":  50000,
                                              "activation":  "tanh",
-                                             "csv_chunk_rows":  262144
+                                             "csv_chunk_rows":  262144,
+                                             "cache_train_tensors":  true,
+                                             "training_cache_subdir":  "tensor_cache",
+                                             "group_ratio_methods":  true,
+                                             "progress_interval_rows":  1000000
                                          }
                  }
 }

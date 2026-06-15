@@ -1,77 +1,89 @@
 ﻿{
-    "name":  "paper_10m_neural_training",
-    "paths":  {
-                  "storage_workspace":  ".",
-                  "table_subdir":  "tables",
-                  "sample_output_subdir":  "madminer_style_training",
-                  "model_subdir":  "trained_estimators",
-                  "performance_plot_subdir":  "performance_plots"
-              },
-    "physics":  {
-                    "eft_operators":  [
-                                          "CWL2",
-                                          "CPWL2"
-                                      ],
-                    "feature_columns":  [
-                                            "e_j1",
-                                            "pt_j1",
-                                            "phi_j1",
-                                            "eta_j1",
-                                            "e_j2",
-                                            "pt_j2",
-                                            "phi_j2",
-                                            "eta_j2",
-                                            "delta_eta_jj",
-                                            "abs_delta_eta_jj",
-                                            "delta_phi_jj",
-                                            "abs_delta_phi_jj",
-                                            "m_jj",
-                                            "e_a1",
-                                            "pt_a1",
-                                            "phi_a1",
-                                            "eta_a1",
-                                            "e_a2",
-                                            "pt_a2",
-                                            "phi_a2",
-                                            "eta_a2",
-                                            "delta_r_aa",
-                                            "pt_aa",
-                                            "eta_aa",
-                                            "m_aa",
-                                            "met",
-                                            "visible_ht",
-                                            "zeppenfeld_aa"
-                                        ]
-                },
-    "training":  {
-                     "methods":  [
-                                     "RASCAL",
-                                     "CASCAL",
-                                     "ALICES"
-                                 ],
-                     "training_config":  {
-                                             "batch_size":  32768,
-                                             "epochs":  50,
-                                             "learning_rate":  0.0015,
-                                             "min_learning_rate":  1E-05,
-                                             "weight_decay":  0.0,
-                                             "hidden_layers":  [
-                                                                   100,
-                                                                   100,
-                                                                   100,
-                                                                   100,
-                                                                   100
-                                                               ],
-                                             "dropout":  0.0,
-                                             "feature_noise_std":  0.0,
-                                             "alpha":  10,
-                                             "gradient_clip":  1000000.0,
-                                             "patience":  50,
-                                             "min_delta":  1E-06,
-                                             "seed":  1234,
-                                             "plot_max_points":  50000,
-                                             "activation":  "tanh",
-                                             "csv_chunk_rows":  262144
-                                         }
-                 }
+    "name": "paper_10m_neural_training",
+    "paths": {
+        "storage_workspace": ".",
+        "table_subdir": "tables",
+        "sample_output_subdir": "madminer_style_training",
+        "model_subdir": "trained_estimators",
+        "performance_plot_subdir": "performance_plots"
+    },
+    "physics": {
+        "eft_operators": [
+            "CWL2",
+            "CPWL2"
+        ],
+        "feature_columns": [
+            "e_j1",
+            "pt_j1",
+            "phi_j1",
+            "eta_j1",
+            "e_j2",
+            "pt_j2",
+            "phi_j2",
+            "eta_j2",
+            "delta_eta_jj",
+            "abs_delta_eta_jj",
+            "delta_phi_jj",
+            "abs_delta_phi_jj",
+            "m_jj",
+            "e_a1",
+            "pt_a1",
+            "phi_a1",
+            "eta_a1",
+            "e_a2",
+            "pt_a2",
+            "phi_a2",
+            "eta_a2",
+            "delta_r_aa",
+            "pt_aa",
+            "eta_aa",
+            "m_aa",
+            "met",
+            "visible_ht",
+            "zeppenfeld_aa"
+        ]
+    },
+    "training": {
+        "methods": [
+            {
+                "name": "RASCAL",
+                "alpha": 100
+            },
+            {
+                "name": "CASCAL",
+                "alpha": 5
+            },
+            {
+                "name": "ALICES",
+                "alpha": 1
+            }
+        ],
+        "training_config": {
+            "batch_size": 32768,
+            "epochs": 200,
+            "learning_rate": 0.0015,
+            "min_learning_rate": 1E-05,
+            "weight_decay": 0.0,
+            "hidden_layers": [
+                100,
+                100,
+                100,
+                100,
+                100
+            ],
+            "dropout": 0.0,
+            "feature_noise_std": 0.0,
+            "gradient_clip": 1000000.0,
+            "patience": 50,
+            "min_delta": 1E-06,
+            "seed": 1234,
+            "plot_max_points": 50000,
+            "activation": "tanh",
+            "csv_chunk_rows": 262144,
+            "cache_train_tensors": true,
+            "training_cache_subdir": "tensor_cache",
+            "group_ratio_methods": true,
+            "progress_interval_rows": 1000000
+        }
+    }
 }
