@@ -40,4 +40,4 @@ export EFT_LOG_DIR="${EFT_LOG_DIR:-$HOME/eft_slurm_logs/${SLURM_JOB_NAME:-eft}/$
 mkdir -p "$EFT_LOG_DIR"
 
 CONFIG="${1:-configs/paper_10m/neural_training.json}"
-exec ./run_neural_training.sh "$CONFIG"
+exec bash ./run_neural_training.sh "$CONFIG"

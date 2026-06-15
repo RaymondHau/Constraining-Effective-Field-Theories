@@ -38,4 +38,4 @@ export EFT_LOG_DIR="${EFT_LOG_DIR:-$HOME/eft_slurm_logs/${SLURM_JOB_NAME:-eft}/$
 mkdir -p "$EFT_LOG_DIR"
 
 CONFIG="${1:-configs/paper_10m/sample_preparation.json}"
-exec ./run_sample_preparation.sh "$CONFIG"
+exec bash ./run_sample_preparation.sh "$CONFIG"
