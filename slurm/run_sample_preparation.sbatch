@@ -13,8 +13,7 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+REPO_DIR="${SLURM_SUBMIT_DIR:-$(pwd)}"
 cd "$REPO_DIR"
 
 if command -v module >/dev/null 2>&1; then
