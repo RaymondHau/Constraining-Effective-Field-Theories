@@ -44,7 +44,7 @@ def main() -> int:
     if not log_dir.is_absolute():
         log_dir = (PROJECT_DIR / log_dir).resolve()
 
-    command = [python_bin, str(script)]
+    command = [python_bin, "-u", str(script)]
     print(f"Stage:  {args.name}")
     print(f"Script: {script}")
     print(f"Config: {config_path}")
@@ -58,6 +58,7 @@ def main() -> int:
     env = os.environ.copy()
     env.update({str(k): str(v) for k, v in config.get("env", {}).items()})
     env["EFT_WORKFLOW_CONFIG"] = str(config_path)
+    env["PYTHONUNBUFFERED"] = "1"
 
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / f"{time.strftime('%Y%m%d_%H%M%S')}_{args.name}.log"
