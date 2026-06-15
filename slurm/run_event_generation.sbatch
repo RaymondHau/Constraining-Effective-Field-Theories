@@ -20,7 +20,7 @@ if command -v module >/dev/null 2>&1; then
   if [[ "${MODULE_PURGE:-1}" == "1" ]]; then
     module purge
   fi
-  for module_name in ${MODULES:-python}; do
+  for module_name in ${MODULES:-python/3.11.0-icl}; do
     module load "$module_name"
   done
 fi
