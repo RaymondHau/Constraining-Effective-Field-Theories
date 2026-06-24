@@ -1,0 +1,53 @@
+{
+  "name": "WBF_paper_1805_00020_event_generation",
+  "paths": {
+    "mg5_dir": "madgraph_work/external/MG5_aMC_v3_7_1",
+    "local_workspace": ".",
+    "storage_workspace": ".",
+    "command_subdir": "madgraph_work/mg5_commands",
+    "process_subdir": "madgraph_work/processes/PROC_EWdim6_WBF_H4L",
+    "lhe_archive_subdir": "madgraph_work/generated_lhe_archive",
+    "event_log_subdir": "logs/madgraph/event_generation",
+    "lhe_filename": "unweighted_events.lhe.gz",
+    "archive_generated_lhe": true,
+    "table_subdir": "table_outputs"
+  },
+  "physics": {
+    "paper": "arXiv:1805.00020",
+    "channel": "qq -> qq h -> qq ZZ -> qq 4l (l=e,mu)",
+    "mg_model": "EWdim6-full",
+    "mg_process": "p p > h j j QCD=0 NP<=2, (h > z z NP<=2, z > l+ l-)",
+    "eft_block": "dim6",
+    "eft_operators": ["fW", "fWW"],
+    "eft_operator_keys": {"fW": "2", "fWW": "7"},
+    "param_card_scale": 16.52,
+    "benchmark_points": {
+      "sm": {"fW": 0.0, "fWW": 0.0},
+      "reference": {"fW": 0.393, "fWW": 0.492},
+      "corner_mm": {"fW": -1.0, "fWW": -1.0},
+      "corner_mp": {"fW": -1.0, "fWW": 1.0},
+      "corner_pm": {"fW": 1.0, "fWW": -1.0},
+      "corner_pp": {"fW": 1.0, "fWW": 1.0},
+      "basis_06": {"fW": 0.863563, "fWW": 0.387430},
+      "basis_07": {"fW": 0.630034, "fWW": -0.296889},
+      "basis_08": {"fW": -0.518893, "fWW": 0.261035},
+      "basis_09": {"fW": -0.889570, "fWW": 0.000086},
+      "basis_10": {"fW": -0.616938, "fWW": -0.870713},
+      "basis_11": {"fW": 0.951151, "fWW": -0.633855},
+      "basis_12": {"fW": -0.252431, "fWW": 0.763193},
+      "basis_13": {"fW": 0.558106, "fWW": -0.929897},
+      "basis_14": {"fW": -0.589391, "fWW": -0.537004}
+    },
+    "reference_benchmark": "reference",
+    "theta_ranges": {"fW": [-1.0, 1.0], "fWW": [-1.0, 1.0]},
+    "morphing_theta_scale": {"fW": 1.0, "fWW": 1.0},
+    "morphing_polynomial_degree": 4
+  },
+  "generation": {
+    "event_budget_mode": "paper_parameterized_morphing",
+    "paper_parameterized_generated_events": 5500000,
+    "max_events_per_mg_run": 1000000,
+    "random_seed": 42,
+    "lhc_beam_energy_gev": 6500.0
+  }
+}

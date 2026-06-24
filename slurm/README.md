@@ -1,66 +1,88 @@
 # Slurm submission scripts
 
-These scripts cover the event-generation, sample-preparation, and neural-training
-stages only.
+## Environment setup
 
-Set up the Python environment on CSD3 from the repository root:
+From the repository root on CSD3:
 
 ```bash
 bash slurm/setup_environment.sh
 ```
 
-The workflow requires Python 3.10 or newer. The Slurm scripts default to:
+The scripts require Python 3.10+ and default to:
 
 ```bash
+module purge
 module load python/3.11.0-icl
 ```
 
-Override `MODULES` only if CSD3 changes the available Python modules.
+The default virtual environment is `$HOME/eft_venv`. Override it with `VENV`
+if required.
 
-Submit individual stages:
+## Individual stages
 
 ```bash
 bash slurm/submit_event_generation.sh
 bash slurm/submit_sample_preparation.sh
 bash slurm/submit_neural_training.sh
+bash slurm/submit_validation_events.sh
+bash slurm/submit_constrains.sh
 ```
 
-Pass a non-default config as the first argument:
+Each helper accepts a stage config as its first argument:
 
 ```bash
-bash slurm/submit_neural_training.sh configs/quick_test/neural_training.json
+bash slurm/submit_neural_training.sh configs/WBF/neural_training.json
 ```
 
-The stage defaults are:
+All helpers default to `EFT_PROCESS=VBF`. After adding a matching
+`configs/WBF/` directory, switch process with:
+
+```bash
+EFT_PROCESS=WBF bash slurm/submit_hybrid_workflow.sh
+```
+
+## Hybrid workflow
+
+```bash
+bash slurm/submit_hybrid_workflow.sh
+```
+
+The dependency chain is:
+
+```text
+event generation (icelake)
+  -> sample preparation (icelake)
+  -> neural training (ampere GPU)
+  -> validation events (icelake)
+  -> constraints (icelake)
+```
+
+Each stage starts only after the previous stage succeeds.
+
+Default resources:
 
 | Stage | Partition | Account | Resources |
 | --- | --- | --- | --- |
-| Event generation | `icelake` | `mphil-dis-sl2-cpu` | 2 CPUs, 16G |
-| Sample preparation | `icelake` | `mphil-dis-sl2-cpu` | 4 CPUs, 64G |
-| Neural training | `ampere` | `mphil-dis-sl2-gpu` | 4 CPUs, 64G, 1 GPU |
+| Event generation | `icelake` | `mphil-dis-sl2-cpu` | 1 node, 2 CPUs, 16G |
+| Sample preparation | `icelake` | `mphil-dis-sl2-cpu` | 1 node, 4 CPUs, 64G |
+| Neural training | `ampere` | `mphil-dis-sl2-gpu` | 1 node, 4 CPUs, 64G, 1 GPU |
+| Validation events | `icelake` | `mphil-dis-sl2-cpu` | 1 node, 1 CPU, 16G |
+| Constraints | `icelake` | `mphil-dis-sl2-cpu` | 1 node, 2 CPUs, 16G |
 
-Each batch script starts from a clean module state by default:
+Override hybrid accounts independently when necessary:
 
 ```bash
-module purge
-module load ${MODULES:-python/3.11.0-icl}
+CPU_ACCOUNT=... GPU_ACCOUNT=... bash slurm/submit_hybrid_workflow.sh
 ```
 
-Environment setup can be controlled with optional variables:
+Pass extra Slurm options through `SBATCH_ARGS`:
 
 ```bash
-MODULES="python/3.11 cuda/12.1" bash slurm/setup_environment.sh
-VENV="$HOME/my_eft_venv" bash slurm/setup_environment.sh
+SBATCH_ARGS="--time=12:00:00" bash slurm/submit_neural_training.sh
 ```
 
-Submit with an existing virtual environment:
+Stage logs are written under:
 
-```bash
-sbatch --export=ALL,VENV="$HOME/eft_venv" slurm/run_neural_training.sbatch
-```
-
-Pass extra `sbatch` options through helper scripts with `SBATCH_ARGS`:
-
-```bash
-SBATCH_ARGS="--export=ALL,VENV=$HOME/eft_venv" bash slurm/submit_neural_training.sh
+```text
+$HOME/eft_slurm_logs/<job-name>/<job-id>/
 ```

@@ -9,5 +9,5 @@ if [[ -z "${PYTHON_BIN:-}" ]]; then
     PYTHON_BIN="python3"
   fi
 fi
-PROCESS="${EFT_PROCESS:-WBF}"
-exec "$PYTHON_BIN" run_workflow.py --config "${1:-configs/$PROCESS/workflow.json}"
+
+exec "$PYTHON_BIN" scripts/compare_validation_morphing.py "$@"

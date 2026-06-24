@@ -182,7 +182,10 @@ def method_alpha(method: str) -> float:
     """Return the score-loss weight configured for one estimator."""
     if "alpha" not in METHOD_CONFIGS.get(method, {}):
         raise KeyError(f"Missing required alpha for training method {method!r}.")
-    return float(METHOD_CONFIGS[method]["alpha"])
+    alpha = float(METHOD_CONFIGS[method]["alpha"])
+    if not math.isfinite(alpha) or alpha < 0.0:
+        raise ValueError(f"Alpha for {method!r} must be finite and non-negative, got {alpha!r}.")
+    return alpha
 
 
 def load_workflow_config() -> Dict:
@@ -207,6 +210,12 @@ if "feature_columns" in _PHYSICS_CONFIG:
     FEATURE_COLUMNS = list(_PHYSICS_CONFIG["feature_columns"])
 if "eft_operators" in _PHYSICS_CONFIG:
     EFT_OPERATORS = list(_PHYSICS_CONFIG["eft_operators"])
+SCORE_COORDINATE_SCALE = np.array(
+    [_PHYSICS_CONFIG.get("morphing_theta_scale", {}).get(name, 1.0) for name in EFT_OPERATORS],
+    dtype=np.float32,
+).reshape(1, -1)
+if np.any(~np.isfinite(SCORE_COORDINATE_SCALE)) or np.any(SCORE_COORDINATE_SCALE <= 0.0):
+    raise ValueError(f"morphing_theta_scale must contain positive finite values, got {SCORE_COORDINATE_SCALE!r}")
 if "training_config" in _TRAINING_SECTION:
     TRAINING_CONFIG.update(_TRAINING_SECTION["training_config"])
 if "training_config" in _STAGE_CONFIG:
@@ -215,9 +224,11 @@ if "methods" in _TRAINING_SECTION:
     METHODS, METHOD_CONFIGS = normalize_methods(_TRAINING_SECTION["methods"])
 if "methods" in _STAGE_CONFIG:
     METHODS, METHOD_CONFIGS = normalize_methods(_STAGE_CONFIG["methods"])
+CONFIGURED_RATIO_METHODS = [method for method in METHODS if method in RATIO_METHODS]
 print("Training methods:", METHODS)
 print("Method configs:", METHOD_CONFIGS)
 print("Training config:", TRAINING_CONFIG)
+print("Score coordinate scale:", dict(zip(EFT_OPERATORS, SCORE_COORDINATE_SCALE.ravel())))
 log_timing("configuration loaded")
 
 
@@ -344,14 +355,14 @@ def stats_to_standardizer(stats: Dict[str, object]) -> Standardizer:
     return Standardizer(mean_1d[None, :].astype(np.float32), scale_1d[None, :].astype(np.float32))
 
 
-def fit_training_scalers() -> Tuple[Standardizer, Standardizer, Standardizer, Standardizer]:
-    """Fit all training scalers with one ratio CSV pass and one local-score CSV pass."""
+def fit_training_scalers() -> Tuple[Standardizer, Standardizer, Standardizer, Standardizer, Standardizer]:
+    """Fit each input and target scaler only from its corresponding training sample."""
     feature_stats = empty_stats(len(FEATURE_COLUMNS))
     theta_stats = empty_stats(len(theta0_columns))
     log_r_stats = empty_stats(1)
-    score_stats = empty_stats(len(score_columns))
+    ratio_score_stats = empty_stats(len(score_columns))
 
-    ratio_columns = list(dict.fromkeys(FEATURE_COLUMNS + theta0_columns + ["log_r"] + score_columns))
+    ratio_columns = list(dict.fromkeys(FEATURE_COLUMNS + theta0_columns + ["y", "log_r"] + score_columns))
     print(f"Fitting ratio scalers from {ratio_paths['train'].name}", flush=True)
     ratio_count = 0
     ratio_start = time.monotonic()
@@ -360,7 +371,8 @@ def fit_training_scalers() -> Tuple[Standardizer, Standardizer, Standardizer, St
         update_stats(feature_stats, chunk[FEATURE_COLUMNS].to_numpy(dtype=np.float64))
         update_stats(theta_stats, chunk[theta0_columns].to_numpy(dtype=np.float64))
         update_stats(log_r_stats, chunk[["log_r"]].to_numpy(dtype=np.float64))
-        update_stats(score_stats, chunk[score_columns].to_numpy(dtype=np.float64))
+        numerator_chunk = chunk.loc[chunk["y"] == 1.0, score_columns]
+        update_stats(ratio_score_stats, numerator_chunk.to_numpy(dtype=np.float64))
         ratio_count += len(chunk)
         if chunk_index == 1 or chunk_index % 10 == 0:
             elapsed = time.monotonic() - ratio_start
@@ -371,31 +383,25 @@ def fit_training_scalers() -> Tuple[Standardizer, Standardizer, Standardizer, St
                 flush=True,
             )
 
-    print(f"Fitting score scaler contribution from {local_paths['train'].name}", flush=True)
-    local_count = 0
-    local_start = time.monotonic()
-    local_total = expected_rows("local", "train")
-    for chunk_index, chunk in enumerate(pd.read_csv(local_paths["train"], usecols=score_columns, chunksize=CSV_CHUNK_ROWS), start=1):
-        update_stats(score_stats, chunk[score_columns].to_numpy(dtype=np.float64))
-        local_count += len(chunk)
-        if chunk_index == 1 or chunk_index % 10 == 0:
-            elapsed = time.monotonic() - local_start
-            rate = local_count / elapsed if elapsed > 0.0 else float("nan")
-            print(
-                f"  {local_paths['train'].name}: scaler progress {progress_text(local_count, local_total)} "
-                f"in {format_duration(elapsed)} ({rate:,.0f} rows/s)",
-                flush=True,
-            )
+    ratio_score_scaler = stats_to_standardizer(ratio_score_stats)
+    local_score_scaler = ratio_score_scaler
+    if "SALLINO" in METHODS:
+        local_score_stats = empty_stats(len(score_columns))
+        print(f"Fitting local score scaler from {local_paths['train'].name}", flush=True)
+        for chunk in pd.read_csv(local_paths["train"], usecols=score_columns, chunksize=CSV_CHUNK_ROWS):
+            update_stats(local_score_stats, chunk[score_columns].to_numpy(dtype=np.float64))
+        local_score_scaler = stats_to_standardizer(local_score_stats)
 
     return (
         stats_to_standardizer(feature_stats),
         stats_to_standardizer(theta_stats),
         stats_to_standardizer(log_r_stats),
-        stats_to_standardizer(score_stats),
+        ratio_score_scaler,
+        local_score_scaler,
     )
 
 
-feature_scaler, theta_scaler, log_r_scaler, score_scaler = fit_training_scalers()
+feature_scaler, theta_scaler, log_r_scaler, ratio_score_scaler, local_score_scaler = fit_training_scalers()
 log_timing("fitted training scalers")
 
 
@@ -408,6 +414,7 @@ def cache_signature(kind: str, path: Path, usecols: list[str]) -> Tuple[str, Dic
     """Return a stable cache key and manifest payload for preprocessed tensors."""
     stat = path.stat()
     payload = {
+        "schema_version": 2,
         "kind": kind,
         "path": str(path.resolve()),
         "size": stat.st_size,
@@ -417,12 +424,13 @@ def cache_signature(kind: str, path: Path, usecols: list[str]) -> Tuple[str, Dic
         "theta0_columns": theta0_columns,
         "theta_columns": theta_columns,
         "score_columns": score_columns,
+        "score_coordinate_scale": SCORE_COORDINATE_SCALE.tolist(),
         "csv_chunk_rows": CSV_CHUNK_ROWS,
         "scalers": {
             "feature": scaler_signature(feature_scaler),
             "theta": scaler_signature(theta_scaler),
             "log_r": scaler_signature(log_r_scaler),
-            "score": scaler_signature(score_scaler),
+            "score": scaler_signature(local_score_scaler if kind == "local" else ratio_score_scaler),
         },
     }
     encoded = json.dumps(payload, sort_keys=True).encode("utf-8")
@@ -445,9 +453,8 @@ def build_ratio_payload(frame: pd.DataFrame) -> Dict[str, torch.Tensor]:
         "y": torch.as_tensor(frame[["y"]].to_numpy(dtype=np.float32), dtype=torch.float32),
         "soft_y": torch.as_tensor(frame[["soft_y"]].to_numpy(dtype=np.float32), dtype=torch.float32),
         "log_r": torch.as_tensor(frame[["log_r"]].to_numpy(dtype=np.float32), dtype=torch.float32),
-        "log_r_scaled": torch.as_tensor(log_r_scaler.transform(frame[["log_r"]].to_numpy(dtype=np.float32)), dtype=torch.float32),
+        "likelihood_ratio": torch.as_tensor(frame[["likelihood_ratio"]].to_numpy(dtype=np.float32), dtype=torch.float32),
         "score": torch.as_tensor(frame[score_columns].to_numpy(dtype=np.float32), dtype=torch.float32),
-        "score_scaled": torch.as_tensor(score_scaler.transform(frame[score_columns].to_numpy(dtype=np.float32)), dtype=torch.float32),
     }
 
 
@@ -457,7 +464,6 @@ def build_local_payload(frame: pd.DataFrame) -> Dict[str, torch.Tensor]:
         "features": torch.as_tensor(feature_scaler.transform(frame[FEATURE_COLUMNS].to_numpy(dtype=np.float32)), dtype=torch.float32),
         "theta": torch.as_tensor(theta_scaler.transform(frame[theta_columns].to_numpy(dtype=np.float32)), dtype=torch.float32),
         "score": torch.as_tensor(frame[score_columns].to_numpy(dtype=np.float32), dtype=torch.float32),
-        "score_scaled": torch.as_tensor(score_scaler.transform(frame[score_columns].to_numpy(dtype=np.float32)), dtype=torch.float32),
     }
 
 
@@ -530,11 +536,9 @@ class RatioDataset(Dataset):
         self.y = torch.as_tensor(frame[["y"]].to_numpy(dtype=np.float32), dtype=torch.float32)
         self.soft_y = torch.as_tensor(frame[["soft_y"]].to_numpy(dtype=np.float32), dtype=torch.float32)
         self.log_r = torch.as_tensor(frame[["log_r"]].to_numpy(dtype=np.float32), dtype=torch.float32)
+        self.likelihood_ratio = torch.as_tensor(frame[["likelihood_ratio"]].to_numpy(dtype=np.float32), dtype=torch.float32)
 
-        # Scale log-ratios and raw scores for standard training losses
-        self.log_r_scaled = torch.as_tensor(log_r_scaler.transform(frame[["log_r"]].to_numpy(dtype=np.float32)), dtype=torch.float32)
         self.score = torch.as_tensor(frame[score_columns].to_numpy(dtype=np.float32), dtype=torch.float32)
-        self.score_scaled = torch.as_tensor(score_scaler.transform(frame[score_columns].to_numpy(dtype=np.float32)), dtype=torch.float32)
 
     def __len__(self) -> int:
         """Return the number of rows."""
@@ -543,7 +547,7 @@ class RatioDataset(Dataset):
     def __getitem__(self, index: int) -> Dict[str, torch.Tensor]:
         """Return one ratio-training row."""
         # Package and return a single event batch item
-        keys = ["features", "theta", "y", "soft_y", "log_r", "log_r_scaled", "score", "score_scaled"]
+        keys = ["features", "theta", "y", "soft_y", "log_r", "likelihood_ratio", "score"]
         return {key: getattr(self, key)[index] for key in keys}
 
 
@@ -555,9 +559,8 @@ class LocalScoreDataset(Dataset):
         self.features = torch.as_tensor(feature_scaler.transform(frame[FEATURE_COLUMNS].to_numpy(dtype=np.float32)), dtype=torch.float32)
         self.theta = torch.as_tensor(theta_scaler.transform(frame[theta_columns].to_numpy(dtype=np.float32)), dtype=torch.float32)
 
-        # Load true local score components and apply standardization
+        # Load true local score components
         self.score = torch.as_tensor(frame[score_columns].to_numpy(dtype=np.float32), dtype=torch.float32)
-        self.score_scaled = torch.as_tensor(score_scaler.transform(frame[score_columns].to_numpy(dtype=np.float32)), dtype=torch.float32)
 
     def __len__(self) -> int:
         """Return the number of rows."""
@@ -566,7 +569,7 @@ class LocalScoreDataset(Dataset):
     def __getitem__(self, index: int) -> Dict[str, torch.Tensor]:
         """Return one local-score row."""
         # Fetch properties as dictionary values
-        return {key: getattr(self, key)[index] for key in ["features", "theta", "score", "score_scaled"]}
+        return {key: getattr(self, key)[index] for key in ["features", "theta", "score"]}
 
 
 class RatioCSVBatchDataset(IterableDataset):
@@ -742,49 +745,122 @@ def restore_parameter_grad_state(model: nn.Module, previous: list[bool]) -> None
         parameter.requires_grad_(requires_grad)
 
 
-def scaled_log_r_tensor(values: torch.Tensor) -> torch.Tensor:
-    """Convert physical log-ratio tensors to the standardized training scale."""
-    # Standardize physical values for computing normalized loss functions
-    mean = torch.as_tensor(log_r_scaler.mean, dtype=torch.float32, device=values.device)
-    scale = torch.as_tensor(log_r_scaler.scale, dtype=torch.float32, device=values.device)
-    return (values - mean) / scale
+def normalized_mse(
+    prediction: torch.Tensor,
+    target: torch.Tensor,
+    scale: np.ndarray,
+) -> torch.Tensor:
+    """Return MSE of residuals normalized by each target's training std."""
+    scale_tensor = torch.as_tensor(scale, dtype=prediction.dtype, device=prediction.device)
+    return torch.mean(torch.square((prediction - target) / scale_tensor))
 
 
-def scaled_score_tensor(values: torch.Tensor) -> torch.Tensor:
-    """Convert physical score tensors to the standardized training scale."""
-    # Standardize score components to standard normal target space
-    mean = torch.as_tensor(score_scaler.mean, dtype=torch.float32, device=values.device)
-    scale = torch.as_tensor(score_scaler.scale, dtype=torch.float32, device=values.device)
-    return (values - mean) / scale
+def numerator_score_loss(
+    score_prediction: torch.Tensor,
+    score_target: torch.Tensor,
+    y: torch.Tensor,
+) -> torch.Tensor:
+    """Return N^-1 sum of score errors on numerator (y=1) events only."""
+    per_event = torch.sum(torch.square(score_prediction - score_target), dim=1, keepdim=True)
+    return torch.mean(y * per_event)
+
+
+def score_regression_loss(score_prediction: torch.Tensor, score_target: torch.Tensor) -> torch.Tensor:
+    """Return the mean per-event squared Euclidean score error."""
+    return torch.mean(torch.sum(torch.square(score_prediction - score_target), dim=1))
+
+
+def classifier_augmented_loss(
+    log_r_prediction: torch.Tensor,
+    class_target: torch.Tensor,
+    score_prediction: torch.Tensor,
+    score_target: torch.Tensor,
+    y: torch.Tensor,
+    alpha: float,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Return classifier loss plus numerator-only score regression."""
+    main_loss = nn.functional.binary_cross_entropy_with_logits(log_r_prediction, class_target)
+    score_loss = numerator_score_loss(score_prediction, score_target, y)
+    return main_loss + alpha * score_loss, main_loss, score_loss
+
+
+def rascal_ratio_loss(
+    log_r_prediction: torch.Tensor,
+    ratio_target: torch.Tensor,
+    y: torch.Tensor,
+    max_abs_log_ratio: float = 30.0,
+) -> torch.Tensor:
+    """Return Eq. (37)'s ratio/inverse-ratio regression for y=1 numerator labels."""
+    clipped_log_r = torch.clamp(log_r_prediction, -max_abs_log_ratio, max_abs_log_ratio)
+    ratio_prediction = torch.exp(clipped_log_r)
+    inverse_ratio_prediction = torch.exp(-clipped_log_r)
+    safe_ratio_target = torch.clamp(ratio_target, min=torch.finfo(ratio_target.dtype).tiny)
+    denominator_term = (1.0 - y) * torch.square(ratio_prediction - safe_ratio_target)
+    numerator_term = y * torch.square(inverse_ratio_prediction - torch.reciprocal(safe_ratio_target))
+    return torch.mean(denominator_term + numerator_term)
+
+
+def rascal_augmented_loss(
+    log_r_prediction: torch.Tensor,
+    ratio_target: torch.Tensor,
+    score_prediction: torch.Tensor,
+    score_target: torch.Tensor,
+    y: torch.Tensor,
+    alpha: float,
+    max_abs_log_ratio: float = 30.0,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Return the RASCAL ratio loss plus numerator-only score regression."""
+    main_loss = rascal_ratio_loss(log_r_prediction, ratio_target, y, max_abs_log_ratio)
+    score_loss = numerator_score_loss(score_prediction, score_target, y)
+    return main_loss + alpha * score_loss, main_loss, score_loss
 
 
 def ratio_loss(method: str, model: RatioEstimator, batch: Dict[str, torch.Tensor]) -> Tuple[torch.Tensor, Dict[str, object]]:
     """Return the method-specific ratio loss for one batch."""
     # Predict log r and its gradient-based score
     log_r_pred, score_pred = ratio_score_from_gradient(model, batch["features"], batch["theta"])
+    score_coordinate_scale = torch.as_tensor(
+        SCORE_COORDINATE_SCALE, dtype=score_pred.dtype, device=score_pred.device
+    )
+    scaled_score_pred = score_pred * score_coordinate_scale
+    scaled_score_target = batch["score"] * score_coordinate_scale
 
-    # Compute score MSE loss in the standardized training scale
-    score_pred_scaled = scaled_score_tensor(score_pred)
-    score_loss = nn.functional.mse_loss(score_pred_scaled, batch["score_scaled"])
-
-    # Calculate classifier-style main loss or regression loss depending on method
+    alpha = method_alpha(method)
+    # This workspace uses y=1 for numerator events and y=0 for denominator events.
+    # The paper's score term is therefore masked by y in every augmented method.
     if method == "ALICES":
-        main_loss = nn.functional.binary_cross_entropy_with_logits(log_r_pred, batch["soft_y"])
+        total, main_loss, score_loss = classifier_augmented_loss(
+            log_r_pred, batch["soft_y"], scaled_score_pred, scaled_score_target, batch["y"], alpha
+        )
     elif method == "CASCAL":
-        main_loss = nn.functional.binary_cross_entropy_with_logits(log_r_pred, batch["y"])
+        total, main_loss, score_loss = classifier_augmented_loss(
+            log_r_pred, batch["y"], scaled_score_pred, scaled_score_target, batch["y"], alpha
+        )
     elif method == "RASCAL":
-        main_loss = nn.functional.mse_loss(scaled_log_r_tensor(log_r_pred), batch["log_r_scaled"])
+        total, main_loss, score_loss = rascal_augmented_loss(
+            log_r_pred,
+            batch["likelihood_ratio"],
+            scaled_score_pred,
+            scaled_score_target,
+            batch["y"],
+            alpha,
+            float(TRAINING_CONFIG.get("rascal_max_abs_log_ratio", 30.0)),
+        )
     else:
         raise ValueError(method)
 
-    # Scale score loss weight by configuration alpha and return combined loss
-    alpha = method_alpha(method)
-    total = main_loss + alpha * score_loss
+    weighted_score_loss = alpha * score_loss
+    log_r_mse = torch.mean(torch.square(log_r_pred - batch["log_r"]))
+    classifier_bce = nn.functional.binary_cross_entropy_with_logits(log_r_pred, batch["y"])
     return total, {
         "loss": total.detach(),
         "main_loss": main_loss.detach(),
         "score_loss": score_loss.detach(),
+        "weighted_score_loss": weighted_score_loss.detach(),
+        "log_r_mse": log_r_mse.detach(),
+        "classifier_bce": classifier_bce.detach(),
         "alpha": alpha,
+        "batch_rows": int(log_r_pred.shape[0]),
     }
 
 
@@ -792,23 +868,45 @@ def sallino_loss(model: ScoreEstimator, batch: Dict[str, torch.Tensor]) -> Tuple
     """Return the SALLINO direct score loss."""
     # Feed features and theta, compute prediction score
     score_pred = model(batch["features"], batch["theta"])
-    # Return MSE loss between normalized prediction score and targets
-    loss = nn.functional.mse_loss(scaled_score_tensor(score_pred), batch["score_scaled"])
-    return loss, {"loss": loss.detach(), "main_loss": math.nan, "score_loss": loss.detach()}
+    score_coordinate_scale = torch.as_tensor(
+        SCORE_COORDINATE_SCALE, dtype=score_pred.dtype, device=score_pred.device
+    )
+    loss = score_regression_loss(
+        score_pred * score_coordinate_scale,
+        batch["score"] * score_coordinate_scale,
+    )
+    return loss, {
+        "loss": loss.detach(),
+        "main_loss": math.nan,
+        "score_loss": loss.detach(),
+        "batch_rows": int(score_pred.shape[0]),
+    }
 
 
 def mean_metric_values(metrics: list[Dict[str, object]]) -> Dict[str, float]:
-    """Average batch metrics with one device sync per metric."""
+    """Average batch metrics by row count with one device sync per metric."""
     if not metrics:
         return {}
+    row_weights = np.asarray([row.get("batch_rows", 1) for row in metrics], dtype=np.float64)
+    total_rows = float(row_weights.sum())
     averaged = {}
     for column in metrics[0]:
+        if column == "batch_rows":
+            continue
         values = [row[column] for row in metrics]
         tensor_values = [value for value in values if torch.is_tensor(value)]
         if tensor_values:
-            averaged[column] = float(torch.stack(tensor_values).mean().detach().cpu())
+            stacked = torch.stack(tensor_values)
+            weights = torch.as_tensor(row_weights, dtype=stacked.dtype, device=stacked.device)
+            averaged[column] = float((stacked * weights).sum().div(total_rows).detach().cpu())
         else:
-            averaged[column] = float(np.nanmean(np.asarray(values, dtype=np.float64)))
+            numeric = np.asarray(values, dtype=np.float64)
+            finite = np.isfinite(numeric)
+            averaged[column] = (
+                float(np.sum(numeric[finite] * row_weights[finite]) / np.sum(row_weights[finite]))
+                if np.any(finite)
+                else float("nan")
+            )
     return averaged
 
 
@@ -837,6 +935,14 @@ def save_trained_method(method: str, model: nn.Module, history_rows: list[Dict[s
     history = history_rows if isinstance(history_rows, pd.DataFrame) else pd.DataFrame(history_rows)
     effective_training_config = dict(TRAINING_CONFIG)
     effective_training_config["alpha"] = method_alpha(method)
+    effective_training_config["loss_convention"] = (
+        "paper_ratio_inverse_ratio_plus_numerator_score"
+        if method == "RASCAL"
+        else "classifier_plus_numerator_score"
+    )
+    effective_training_config["score_coordinate_scale"] = dict(
+        zip(EFT_OPERATORS, SCORE_COORDINATE_SCALE.ravel().tolist())
+    )
     torch.save(
         {
             "method": method,
@@ -847,7 +953,10 @@ def save_trained_method(method: str, model: nn.Module, history_rows: list[Dict[s
                 "feature": {"mean": feature_scaler.mean, "scale": feature_scaler.scale},
                 "theta": {"mean": theta_scaler.mean, "scale": theta_scaler.scale},
                 "log_r": {"mean": log_r_scaler.mean, "scale": log_r_scaler.scale},
-                "score": {"mean": score_scaler.mean, "scale": score_scaler.scale},
+                "score": {
+                    "mean": (local_score_scaler if method == "SALLINO" else ratio_score_scaler).mean,
+                    "scale": (local_score_scaler if method == "SALLINO" else ratio_score_scaler).scale,
+                },
             },
         },
         MODEL_DIR / f"{method.lower()}.pt",
@@ -933,7 +1042,8 @@ def train_method(method: str, method_index: int, method_count: int) -> Tuple[nn.
         history.append(row)
 
         # Check early stopping progress
-        val_loss = row["validation_loss"]
+        selection_column = "validation_classifier_bce" if bool(TRAINING_CONFIG.get("optuna_scan_mode", False)) and method in RATIO_METHODS else "validation_loss"
+        val_loss = row[selection_column]
         if val_loss < best_val - TRAINING_CONFIG["min_delta"]:
             best_val = val_loss
             best_state = {key: value.detach().cpu().clone() for key, value in model.state_dict().items()}
@@ -1062,7 +1172,8 @@ def train_ratio_methods_grouped(ratio_methods: list[str], start_index: int, meth
                     row[f"{prefix}_{column}"] = value
             histories[method].append(row)
 
-            val_loss = row["validation_loss"]
+            selection_column = "validation_classifier_bce" if bool(TRAINING_CONFIG.get("optuna_scan_mode", False)) else "validation_loss"
+            val_loss = row[selection_column]
             if val_loss < best_values[method] - TRAINING_CONFIG["min_delta"]:
                 best_values[method] = val_loss
                 best_states[method] = {key: value.detach().cpu().clone() for key, value in models[method].state_dict().items()}
@@ -1146,13 +1257,20 @@ def collect_ratio_predictions(method: str, model: nn.Module, loader: DataLoader)
             batch = batch_to_device(batch)
             # Predict physical values
             log_r_pred, score_pred = ratio_score_from_gradient(model, batch["features"], batch["theta"])
+            theta_physical = (
+                batch["theta"].detach().cpu().numpy() * theta_scaler.scale
+                + theta_scaler.mean
+            )
             payload = {
                 "method": method,
+                "y": batch["y"].detach().cpu().numpy().ravel(),
+                "likelihood_ratio_true": batch["likelihood_ratio"].detach().cpu().numpy().ravel(),
                 "log_r_true": batch["log_r"].detach().cpu().numpy().ravel(),
                 "log_r_pred": log_r_pred.detach().cpu().numpy().ravel(),
             }
             # Add ground truth and predicted scores for each operator parameter
             for i, name in enumerate(EFT_OPERATORS):
+                payload[f"theta0_{name}"] = theta_physical[:, i]
                 payload[f"score_true_{name}"] = batch["score"][:, i].detach().cpu().numpy()
                 payload[f"score_pred_{name}"] = score_pred[:, i].detach().cpu().numpy()
             rows.append(pd.DataFrame(payload))
@@ -1182,12 +1300,74 @@ def collect_sallino_predictions(model: nn.Module, loader: DataLoader) -> pd.Data
     return pd.concat(rows, ignore_index=True)
 
 
+def binary_classification_metrics(predictions: pd.DataFrame) -> Dict[str, float]:
+    """Return proper marginal hard-label risks, averaged uniformly over theta points."""
+    y = predictions["y"].to_numpy(dtype=np.float64)
+    log_r = predictions["log_r_pred"].to_numpy(dtype=np.float64)
+    loss = np.logaddexp(0.0, log_r) - y * log_r
+    probability = 1.0 / (1.0 + np.exp(-np.clip(log_r, -700.0, 700.0)))
+    theta_columns = [f"theta0_{name}" for name in EFT_OPERATORS]
+    metric_frame = predictions[theta_columns].copy()
+    metric_frame["marginal_bce"] = loss
+    per_theta = metric_frame.groupby(theta_columns, sort=False)["marginal_bce"].mean()
+    return {
+        "marginal_bce": float(per_theta.mean()),
+        "brier": float(np.mean(np.square(probability - y))),
+        "evaluation_rows": int(len(predictions)),
+        "theta_points": int(len(per_theta)),
+    }
+
+
+def log_r_regression_metrics(predictions: pd.DataFrame) -> Dict[str, float]:
+    """Return common validation diagnostics for parameterized log-r estimators."""
+    values = predictions[["y", "log_r_true", "log_r_pred"]].replace([np.inf, -np.inf], np.nan).dropna()
+    residual = values["log_r_pred"].to_numpy(dtype=np.float64) - values["log_r_true"].to_numpy(dtype=np.float64)
+    absolute_truth = np.abs(values["log_r_true"].to_numpy(dtype=np.float64))
+    trim_quantile = float(TRAINING_CONFIG.get("optuna_trim_quantile", 0.99))
+    if not 0.0 < trim_quantile <= 1.0:
+        raise ValueError(f"optuna_trim_quantile must lie in (0, 1], got {trim_quantile}")
+    trim_threshold = float(np.quantile(absolute_truth, trim_quantile))
+    trimmed = absolute_truth <= trim_threshold
+    y = values["y"].to_numpy(dtype=np.float64)
+    return {
+        "rmse": float(np.sqrt(np.mean(np.square(residual)))),
+        "trimmed_rmse": float(np.sqrt(np.mean(np.square(residual[trimmed])))),
+        "mae": float(np.mean(np.abs(residual))),
+        "bias": float(np.mean(residual)),
+        "corr": pearson_corr(values["log_r_true"], values["log_r_pred"]),
+        "y0_rmse": float(np.sqrt(np.mean(np.square(residual[y == 0.0])))),
+        "y1_rmse": float(np.sqrt(np.mean(np.square(residual[y == 1.0])))),
+        "trim_quantile": trim_quantile,
+        "trim_threshold": trim_threshold,
+        "rows": int(len(values)),
+    }
+
+
+if bool(TRAINING_CONFIG.get("optuna_scan_mode", False)):
+    validation_rows = []
+    for method in CONFIGURED_RATIO_METHODS:
+        method_predictions = collect_ratio_predictions(method, models[method], ratio_loaders["validation"])
+        row = {
+            "method": method,
+            "alpha": method_alpha(method),
+        }
+        row.update(binary_classification_metrics(method_predictions))
+        row.update(log_r_regression_metrics(method_predictions))
+        validation_rows.append(row)
+    validation_metrics = pd.DataFrame(validation_rows)
+    validation_path = MODEL_DIR / "validation_marginal_metrics.csv"
+    validation_metrics.to_csv(validation_path, index=False)
+    display(validation_metrics)
+    print(f"Optuna scan mode: wrote marginal metrics to {validation_path}", flush=True)
+    raise SystemExit(0)
+
+
 def regenerate_predictions() -> pd.DataFrame:
     """Run inference with the currently loaded models and save test predictions."""
     if "models" not in globals():
         raise NameError("models is not defined; run the training cell before regenerating predictions.")
     prediction_frames = []
-    for method in ["RASCAL", "CASCAL", "ALICES"]:
+    for method in CONFIGURED_RATIO_METHODS:
         prediction_frames.append(collect_ratio_predictions(method, models[method], ratio_loaders["test"]))
     #prediction_frames.append(collect_sallino_predictions(models["SALLINO"], local_loaders["test"]))
     regenerated = pd.concat(prediction_frames, ignore_index=True)
@@ -1226,7 +1406,8 @@ for method, frame in predictions.groupby("method"):
         residual = frame.loc[mask, "log_r_pred"] - frame.loc[mask, "log_r_true"]
         metric_rows.append({
             "method": method,
-            "target": "log_r",
+            "target": "joint_log_r_diagnostic",
+            "scope": "all rows; joint target is not marginal truth",
             "rmse": float(np.sqrt(np.mean(residual ** 2))),
             "mae": float(np.mean(np.abs(residual))),
             "corr": pearson_corr(frame.loc[mask, "log_r_true"], frame.loc[mask, "log_r_pred"]),
@@ -1234,11 +1415,13 @@ for method, frame in predictions.groupby("method"):
     for name in EFT_OPERATORS:
         true_col = f"score_true_{name}"
         pred_col = f"score_pred_{name}"
-        mask = frame[true_col].notna() & frame[pred_col].notna()
+        numerator_mask = np.ones(len(frame), dtype=bool) if method == "SALLINO" else frame["y"].eq(1.0)
+        mask = numerator_mask & frame[true_col].notna() & frame[pred_col].notna()
         residual = frame.loc[mask, pred_col] - frame.loc[mask, true_col]
         metric_rows.append({
             "method": method,
             "target": f"score_{name}",
+            "scope": "local reference rows" if method == "SALLINO" else "numerator rows only",
             "rmse": float(np.sqrt(np.mean(residual ** 2))),
             "mae": float(np.mean(np.abs(residual))),
             "corr": pearson_corr(frame.loc[mask, true_col], frame.loc[mask, pred_col]),
@@ -1247,6 +1430,42 @@ for method, frame in predictions.groupby("method"):
 metrics_df = pd.DataFrame(metric_rows)
 metrics_df.to_csv(MODEL_DIR / "test_metrics.csv", index=False)
 display(metrics_df.pivot(index="method", columns="target", values=["rmse", "mae", "corr"]))
+
+# Proper held-out risks corresponding to the implemented training objectives.
+objective_rows = []
+score_coordinate_scale_np = SCORE_COORDINATE_SCALE.ravel().astype(np.float64)
+max_abs_log_ratio = float(TRAINING_CONFIG.get("rascal_max_abs_log_ratio", 30.0))
+for method, frame in predictions.groupby("method"):
+    if method == "SALLINO":
+        continue
+    y = frame["y"].to_numpy(dtype=np.float64)
+    log_r_pred = frame["log_r_pred"].to_numpy(dtype=np.float64)
+    ratio_true = np.maximum(frame["likelihood_ratio_true"].to_numpy(dtype=np.float64), np.finfo(np.float64).tiny)
+    clipped_log_r = np.clip(log_r_pred, -max_abs_log_ratio, max_abs_log_ratio)
+    ratio_pred = np.exp(clipped_log_r)
+    classification_metrics = binary_classification_metrics(frame)
+    ratio_inverse_risk = np.mean(
+        (1.0 - y) * np.square(ratio_pred - ratio_true)
+        + y * np.square(np.exp(-clipped_log_r) - np.reciprocal(ratio_true))
+    )
+    score_error = np.column_stack([
+        frame[f"score_pred_{name}"].to_numpy(dtype=np.float64)
+        - frame[f"score_true_{name}"].to_numpy(dtype=np.float64)
+        for name in EFT_OPERATORS
+    ])
+    numerator_score_risk = np.mean(y * np.sum(np.square(score_error * score_coordinate_scale_np), axis=1))
+    objective_rows.append({
+        "method": method,
+        "classifier_bce": classification_metrics["marginal_bce"],
+        "brier": classification_metrics["brier"],
+        "ratio_inverse_ratio_risk": float(ratio_inverse_risk),
+        "numerator_score_risk": float(numerator_score_risk),
+        "alpha": method_alpha(method),
+    })
+
+objective_metrics_df = pd.DataFrame(objective_rows)
+objective_metrics_df.to_csv(MODEL_DIR / "test_objective_metrics.csv", index=False)
+display(objective_metrics_df)
 
 
 # ## 10. Performance Plots
@@ -1281,19 +1500,7 @@ def ensure_predictions() -> pd.DataFrame:
             return loaded_predictions
         raise NameError("predictions is not defined, no saved test_predictions.csv exists, and models is not available to regenerate predictions.")
 
-    # Re-run inference across all methods to generate predictions
-    prediction_path = MODEL_DIR / "test_predictions.csv"
-    prediction_frames = []
-    for method in ["RASCAL", "CASCAL", "ALICES"]:
-        prediction_frames.append(collect_ratio_predictions(method, models[method], ratio_loaders["test"]))
-    if "SALLINO" in models:
-        prediction_frames.append(collect_sallino_predictions(models["SALLINO"], local_loaders["test"]))
-    regenerated = pd.concat(prediction_frames, ignore_index=True)
-    # Save cache prediction CSV to disk
-    regenerated.to_csv(prediction_path, index=False)
-    globals()["predictions"] = regenerated
-    print(f"Regenerated predictions and saved {prediction_path}")
-    return regenerated
+    return regenerate_predictions()
 
 
 def plot_history(histories: Dict[str, pd.DataFrame]) -> None:
@@ -1358,13 +1565,13 @@ def plot_prediction_scatter(frame: pd.DataFrame, method: str, true_col: str, pre
 def plot_residual_histograms(prediction_table: pd.DataFrame) -> None:
     """Plot residual histograms for log-ratio and score targets."""
     # Plot log-ratio residual histograms for ratio methods
-    for target, true_col, pred_col in [("log_r", "log_r_true", "log_r_pred")]:
+    for target, true_col, pred_col in [("joint_log_r_diagnostic", "log_r_true", "log_r_pred")]:
         plt.figure()
-        for method in ["RASCAL", "CASCAL", "ALICES"]:
+        for method in CONFIGURED_RATIO_METHODS:
             frame = prediction_table[prediction_table["method"] == method]
             residual = (frame[pred_col] - frame[true_col]).replace([np.inf, -np.inf], np.nan).dropna()
             plt.hist(residual, bins=80, histtype="step", density=True, label=method)
-        plt.xlabel(f"Predicted - true {target}")
+        plt.xlabel("Marginal prediction - joint log-r target")
         plt.ylabel("Density")
         plt.legend()
         plt.tight_layout()
@@ -1378,6 +1585,8 @@ def plot_residual_histograms(prediction_table: pd.DataFrame) -> None:
         pred_col = f"score_pred_{name}"
         for method in METHODS:
             frame = prediction_table[prediction_table["method"] == method]
+            if method != "SALLINO" and "y" in frame:
+                frame = frame[frame["y"] == 1.0]
             residual = (frame[pred_col] - frame[true_col]).replace([np.inf, -np.inf], np.nan).dropna()
             plt.hist(residual, bins=80, histtype="step", density=True, label=method)
         plt.xlabel(f"Predicted - true score {name}")
@@ -1393,11 +1602,12 @@ predictions = ensure_predictions()
 
 plot_history(plot_histories)
 
-for method in ["RASCAL", "CASCAL", "ALICES"]:
+for method in CONFIGURED_RATIO_METHODS:
     frame = predictions[predictions["method"] == method]
-    plot_prediction_scatter(frame, method, "log_r_true", "log_r_pred", "log_r")
+    plot_prediction_scatter(frame, method, "log_r_true", "log_r_pred", "joint log-r target (diagnostic)")
+    score_frame = frame[frame["y"] == 1.0]
     for name in EFT_OPERATORS:
-        plot_prediction_scatter(frame, method, f"score_true_{name}", f"score_pred_{name}", f"score_{name}")
+        plot_prediction_scatter(score_frame, method, f"score_true_{name}", f"score_pred_{name}", f"score_{name}")
 
 if "SALLINO" in set(predictions["method"]):
     frame = predictions[predictions["method"] == "SALLINO"]

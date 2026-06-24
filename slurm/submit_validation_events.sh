@@ -5,10 +5,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_DIR"
 PROCESS="${EFT_PROCESS:-WBF}"
-CONFIG="${1:-configs/$PROCESS/sample_preparation.json}"
+CONFIG="${1:-configs/$PROCESS/validation_events_config.json}"
 read -r -a EXTRA_SBATCH_ARGS <<< "${SBATCH_ARGS:-}"
 if [[ -n "${ACCOUNT:-}" ]]; then
   EXTRA_SBATCH_ARGS+=("--account=$ACCOUNT")
 fi
 
-sbatch "${EXTRA_SBATCH_ARGS[@]}" "$SCRIPT_DIR/run_sample_preparation.sbatch" "$CONFIG"
+sbatch "${EXTRA_SBATCH_ARGS[@]}" "$SCRIPT_DIR/run_validation_events.sbatch" "$CONFIG"

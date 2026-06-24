@@ -1,17 +1,15 @@
 #!/usr/bin/env bash
-#SBATCH --job-name=eft_neural_training
+#SBATCH --job-name=eft_validate_morphing
 #SBATCH --output=slurm-%x-%j.out
 #SBATCH --error=slurm-%x-%j.err
-#SBATCH --time=24:00:00
+#SBATCH --time=08:00:00
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=64G
-#SBATCH --partition=ampere
+#SBATCH --partition=icelake
 #SBATCH --mail-type=END,FAIL
 #SBATCH --mail-user=rs2398@cam.ac.uk
-#SBATCH --account=mphil-dis-sl2-gpu
-#SBATCH --gres=gpu:1
-## For CPU-only training, use --partition=icelake, remove --gres, and consider --cpus-per-task=8.
+#SBATCH --account=mphil-dis-sl2-cpu
 
 set -euo pipefail
 
@@ -44,5 +42,8 @@ export EFT_LOG_DIR="${EFT_LOG_DIR:-$HOME/eft_slurm_logs/${SLURM_JOB_NAME:-eft}/$
 mkdir -p "$EFT_LOG_DIR"
 
 PROCESS="${EFT_PROCESS:-WBF}"
-CONFIG="${1:-configs/$PROCESS/neural_training.json}"
-exec bash ./run_neural_training.sh "$CONFIG"
+VALIDATION_CONFIG="${1:-configs/$PROCESS/validation_events_config.json}"
+SAMPLE_CONFIG="${2:-configs/$PROCESS/sample_preparation.json}"
+exec bash ./run_validation_morphing_comparison.sh \
+  --validation-config "$VALIDATION_CONFIG" \
+  --sample-config "$SAMPLE_CONFIG"

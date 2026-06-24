@@ -9,7 +9,8 @@ if [[ -z "${PYTHON_BIN:-}" ]]; then
     PYTHON_BIN="python3"
   fi
 fi
-CONFIG="${1:-configs/paper_10m/neural_training.json}"
+PROCESS="${EFT_PROCESS:-WBF}"
+CONFIG="${1:-configs/$PROCESS/neural_training.json}"
 
 exec "$PYTHON_BIN" run_stage.py \
   --name neural_training \

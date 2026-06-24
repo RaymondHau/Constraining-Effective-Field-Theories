@@ -41,5 +41,6 @@ export MKL_NUM_THREADS="${MKL_NUM_THREADS:-${SLURM_CPUS_PER_TASK:-1}}"
 export EFT_LOG_DIR="${EFT_LOG_DIR:-$HOME/eft_slurm_logs/${SLURM_JOB_NAME:-eft}/${SLURM_JOB_ID:-manual}}"
 mkdir -p "$EFT_LOG_DIR"
 
-CONFIG="${1:-configs/paper_10m/sample_preparation.json}"
+PROCESS="${EFT_PROCESS:-WBF}"
+CONFIG="${1:-configs/$PROCESS/sample_preparation.json}"
 exec bash ./run_sample_preparation.sh "$CONFIG"

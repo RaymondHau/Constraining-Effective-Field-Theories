@@ -81,8 +81,8 @@ def preferred_storage_workspace() -> Path:
 STORAGE_WORKSPACE_DIR = preferred_storage_workspace()
 WORKSPACE_DIR = LOCAL_WORKSPACE_DIR
 TABLE_DIR = STORAGE_WORKSPACE_DIR / "tables"
-PROCESS_DIR = LOCAL_WORKSPACE_DIR / "processes" / "PROC_EWdim6_VBF_HAA"
-LHE_ARCHIVE_DIR = STORAGE_WORKSPACE_DIR / "generated_lhe_archive"
+PROCESS_DIR = LOCAL_WORKSPACE_DIR / "madgraph_work" / "processes" / "PROC_EWdim6_WBF_HAA"
+LHE_ARCHIVE_DIR = STORAGE_WORKSPACE_DIR / "madgraph_work/generated_lhe_archive"
 OUTPUT_DIR = TABLE_DIR / "madminer_style_training"
 PLOT_DIR = OUTPUT_DIR / "plots"
 LHE_FILENAME = "unweighted_events.lhe.gz"
@@ -118,10 +118,12 @@ REFERENCE_BENCHMARK = "sm"
 REFERENCE_THETA = BENCHMARK_POINTS[REFERENCE_BENCHMARK]
 THETA_RANGES = {"CWL2": (-16.0, 17.0), "CPWL2": (-16.0, 16.0)}
 MORPHING_THETA_SCALE = {"CWL2": 16.5, "CPWL2": 16.0}
+MORPHING_POLYNOMIAL_DEGREE = 2
 
 FINAL_STATE_STATUS = 1
 JET_PDGS = {1, 2, 3, 4, 5, 21}
 PHOTON_PDGS = {22}
+LEPTON_PDGS = {11, 13}
 INVISIBLE_PDGS = {12, 14, 16}
 
 # -------------------------
@@ -208,8 +210,8 @@ PROGRESS_EVERY_EVENTS = 100_000
 TARGET_EPSILON = 1.0e-30
 NEGATIVE_WEIGHT_POLICY = "zero"
 N_EFF_FORCED = None
-LOG_R_ABS_MAX = 10.0
-SCORE_COMPONENT_ABS_MAX = 5.0
+LOG_R_ABS_MAX = None
+SCORE_COMPONENT_ABS_MAX = None
 SCORE_NORM_MAX = None
 DIAGNOSTIC_THETA = {"CWL2": 10.0, "CPWL2": 0.0}
 
@@ -222,8 +224,8 @@ if _PATH_CONFIG:
         STORAGE_WORKSPACE_DIR.mkdir(parents=True, exist_ok=True)
     WORKSPACE_DIR = LOCAL_WORKSPACE_DIR
     TABLE_DIR = STORAGE_WORKSPACE_DIR / _PATH_CONFIG.get("table_subdir", "tables")
-    PROCESS_DIR = LOCAL_WORKSPACE_DIR / _PATH_CONFIG.get("process_subdir", "processes/PROC_EWdim6_VBF_HAA")
-    LHE_ARCHIVE_DIR = STORAGE_WORKSPACE_DIR / _PATH_CONFIG.get("lhe_archive_subdir", "generated_lhe_archive")
+    PROCESS_DIR = LOCAL_WORKSPACE_DIR / _PATH_CONFIG.get("process_subdir", "madgraph_work/processes/PROC_EWdim6_WBF_HAA")
+    LHE_ARCHIVE_DIR = STORAGE_WORKSPACE_DIR / _PATH_CONFIG.get("lhe_archive_subdir", "madgraph_work/generated_lhe_archive")
     OUTPUT_DIR = TABLE_DIR / _PATH_CONFIG.get("sample_output_subdir", "madminer_style_training")
     PLOT_DIR = OUTPUT_DIR / _PATH_CONFIG.get("prepare_plot_subdir", "plots")
     LHE_FILENAME = _PATH_CONFIG.get("lhe_filename", LHE_FILENAME)
@@ -245,6 +247,7 @@ if _PHYSICS_CONFIG:
         for name, bounds in _PHYSICS_CONFIG.get("theta_ranges", THETA_RANGES).items()
     }
     MORPHING_THETA_SCALE = dict(_PHYSICS_CONFIG.get("morphing_theta_scale", MORPHING_THETA_SCALE))
+    MORPHING_POLYNOMIAL_DEGREE = int(_PHYSICS_CONFIG.get("morphing_polynomial_degree", MORPHING_POLYNOMIAL_DEGREE))
 
 _PREP_CONFIG = config_section("preparation")
 if _PREP_CONFIG:
@@ -271,8 +274,10 @@ if _PREP_CONFIG:
     TARGET_EPSILON = float(_PREP_CONFIG.get("target_epsilon", TARGET_EPSILON))
     NEGATIVE_WEIGHT_POLICY = _PREP_CONFIG.get("negative_weight_policy", NEGATIVE_WEIGHT_POLICY)
     N_EFF_FORCED = _PREP_CONFIG.get("n_eff_forced", N_EFF_FORCED)
-    LOG_R_ABS_MAX = float(_PREP_CONFIG.get("log_r_abs_max", LOG_R_ABS_MAX))
-    SCORE_COMPONENT_ABS_MAX = float(_PREP_CONFIG.get("score_component_abs_max", SCORE_COMPONENT_ABS_MAX))
+    log_r_abs_max = _PREP_CONFIG.get("log_r_abs_max", LOG_R_ABS_MAX)
+    score_component_abs_max = _PREP_CONFIG.get("score_component_abs_max", SCORE_COMPONENT_ABS_MAX)
+    LOG_R_ABS_MAX = None if log_r_abs_max is None else float(log_r_abs_max)
+    SCORE_COMPONENT_ABS_MAX = None if score_component_abs_max is None else float(score_component_abs_max)
     SCORE_NORM_MAX = _PREP_CONFIG.get("score_norm_max", SCORE_NORM_MAX)
     DIAGNOSTIC_THETA = dict(_PREP_CONFIG.get("diagnostic_theta", DIAGNOSTIC_THETA))
 
@@ -698,11 +703,35 @@ def event_objects(particles: List[Mapping[str, float]]) -> Dict[str, object]:
     final = [p for p in particles if p["status"] == FINAL_STATE_STATUS]
     jets = [dict(p, **particle_kinematics(p)) for p in final if abs(p["pdg_id"]) in JET_PDGS]
     photons = [dict(p, **particle_kinematics(p)) for p in final if abs(p["pdg_id"]) in PHOTON_PDGS]
+    leptons = [dict(p, **particle_kinematics(p)) for p in final if abs(p["pdg_id"]) in LEPTON_PDGS]
 
     # Sort jets and photons by transverse momentum in descending order to find leaders
     jets = sorted(jets, key=lambda p: p["pt"], reverse=True)
     photons = sorted(photons, key=lambda p: p["pt"], reverse=True)
-    return {"final": final, "jets": jets, "photons": photons, "n_jets": len(jets), "n_photons": len(photons)}
+    leptons = sorted(leptons, key=lambda p: p["pt"], reverse=True)
+    return {
+        "final": final, "jets": jets, "photons": photons, "leptons": leptons,
+        "n_jets": len(jets), "n_photons": len(photons), "n_leptons": len(leptons),
+    }
+
+
+def reconstruct_z_systems(leptons: Sequence[Mapping[str, float]]) -> Tuple[Dict[str, float], Dict[str, float]]:
+    """Pair four e/mu leptons into opposite-sign same-flavour Z candidates."""
+    selected = list(leptons[:4])
+    if len(selected) < 4:
+        return combined_kinematics([]), combined_kinematics([])
+    pairings = [((0, 1), (2, 3)), ((0, 2), (1, 3)), ((0, 3), (1, 2))]
+    candidates = []
+    for first, second in pairings:
+        pairs = ([selected[first[0]], selected[first[1]]], [selected[second[0]], selected[second[1]]])
+        if all(a["pdg_id"] == -b["pdg_id"] for a, b in pairs):
+            systems = [combined_kinematics(pair) for pair in pairs]
+            candidates.append((sum(abs(system["mass"] - 91.1876) for system in systems), systems))
+    systems = min(candidates, key=lambda item: item[0])[1] if candidates else [
+        combined_kinematics(selected[:2]), combined_kinematics(selected[2:4])
+    ]
+    systems.sort(key=lambda system: abs(system["mass"] - 91.1876))
+    return systems[0], systems[1]
 
 
 def extract_observables(particles: List[Mapping[str, float]]) -> Tuple[Dict[str, float], Dict[str, object]] | Tuple[None, Dict[str, object]]:
@@ -711,6 +740,7 @@ def extract_observables(particles: List[Mapping[str, float]]) -> Tuple[Dict[str,
     objects = event_objects(particles)
     jets = objects["jets"]
     photons = objects["photons"]
+    leptons = objects["leptons"]
     final = objects["final"]
     if len(jets) < 2:
         return None, objects
@@ -732,6 +762,10 @@ def extract_observables(particles: List[Mapping[str, float]]) -> Tuple[Dict[str,
     else:
         diphoton_delta_r = np.nan
         zeppenfeld_aa = np.nan
+
+    selected_leptons = list(leptons[:4])
+    four_lepton = combined_kinematics(selected_leptons) if len(selected_leptons) == 4 else combined_kinematics([])
+    z1, z2 = reconstruct_z_systems(selected_leptons)
 
     # Identify visible final state particles and calculate transverse missing energy (MET)
     visible_particles = [p for p in final if abs(p["pdg_id"]) not in INVISIBLE_PDGS]
@@ -771,6 +805,17 @@ def extract_observables(particles: List[Mapping[str, float]]) -> Tuple[Dict[str,
         "m_aa": diphoton["mass"],
         "zeppenfeld_aa": zeppenfeld_aa,
     }
+    for index in range(4):
+        lepton = selected_leptons[index] if index < len(selected_leptons) else None
+        for key in ("e", "pt", "phi", "eta"):
+            obs[f"{key}_l{index + 1}"] = lepton[key] if lepton is not None else np.nan
+    for key in ("e", "pt", "phi", "eta"):
+        obs[f"{key}_4l"] = four_lepton[key]
+        obs[f"{key}_z1"] = z1[key]
+        obs[f"{key}_z2"] = z2[key]
+    obs["m_4l"] = four_lepton["mass"]
+    obs["m_z1"] = z1["mass"]
+    obs["m_z2"] = z2["mass"]
     return obs, objects
 
 
@@ -790,6 +835,10 @@ def build_configured_cuts(config: Mapping[str, object]) -> List[Callable[[Mappin
     min_photons = cut_value(config, "min_photons")
     if min_photons is not None:
         cuts.append(lambda obs, objects, min_photons=int(min_photons): objects["n_photons"] >= min_photons)
+
+    min_leptons = cut_value(config, "min_leptons")
+    if min_leptons is not None:
+        cuts.append(lambda obs, objects, min_leptons=int(min_leptons): objects["n_leptons"] >= min_leptons)
 
     for feature, key in [
         ("pt_j1", "min_pt_j1"),
@@ -1052,39 +1101,43 @@ def theta_matrix(thetas: Sequence[Mapping[str, float]]) -> np.ndarray:
     return np.vstack([theta_vector(theta) for theta in thetas])
 
 
-def quadratic_basis(theta: np.ndarray) -> np.ndarray:
-    """Return the quadratic EFT morphing basis in scaled coordinates."""
-    # Scale parameters by MORPHING_THETA_SCALE to improve matrix condition number (numerical stability)
+def polynomial_exponents(degree: int) -> List[Tuple[int, int]]:
+    """Return all two-parameter monomial exponents up to a total degree."""
+    return [(power_1, total - power_1) for total in range(degree + 1) for power_1 in range(total + 1)]
+
+
+def morphing_basis(theta: np.ndarray) -> np.ndarray:
+    """Return the configured EFT polynomial basis in scaled coordinates."""
     scale = theta_vector(MORPHING_THETA_SCALE)
     scaled_theta = np.asarray(theta, dtype=np.float64) / scale
     c1 = scaled_theta[..., 0]
     c2 = scaled_theta[..., 1]
-    # In 2D parameter space, the cross section or event weights behave as a quadratic polynomial:
-    # w(c1, c2) = a0 + a1*c1 + a2*c2 + a3*c1^2 + a4*c1*c2 + a5*c2^2
-    # This return stacks the polynomial basis components: [1, c1, c2, c1^2, c1*c2, c2^2]
-    return np.stack([np.ones_like(c1), c1, c2, c1 * c1, c1 * c2, c2 * c2], axis=-1)
+    return np.stack([c1**power_1 * c2**power_2 for power_1, power_2 in polynomial_exponents(MORPHING_POLYNOMIAL_DEGREE)], axis=-1)
 
 
-def quadratic_basis_gradient(theta: np.ndarray) -> np.ndarray:
-    """Return gradients of the scaled quadratic basis with respect to physical theta."""
-    # Scale physical parameters to coordinates
+def morphing_basis_gradient(theta: np.ndarray) -> np.ndarray:
+    """Return gradients of the configured basis with respect to physical theta."""
     scale = theta_vector(MORPHING_THETA_SCALE)
     scaled_theta = np.asarray(theta, dtype=np.float64) / scale
     c1 = scaled_theta[..., 0]
     c2 = scaled_theta[..., 1]
-    # Analytical derivatives of each polynomial basis component with respect to c1 and c2,
-    # scaled to get the gradients in terms of the physical parameters.
-    grad_c1 = np.stack([np.zeros_like(c1), np.ones_like(c1), np.zeros_like(c1), 2.0 * c1, c2, np.zeros_like(c1)], axis=-1) / scale[0]
-    grad_c2 = np.stack([np.zeros_like(c1), np.zeros_like(c1), np.ones_like(c1), np.zeros_like(c1), c1, 2.0 * c2], axis=-1) / scale[1]
-
+    exponents = polynomial_exponents(MORPHING_POLYNOMIAL_DEGREE)
+    grad_c1 = np.stack([np.zeros_like(c1) if i == 0 else i * c1 ** (i - 1) * c2**j for i, j in exponents], axis=-1) / scale[0]
+    grad_c2 = np.stack([np.zeros_like(c2) if j == 0 else j * c1**i * c2 ** (j - 1) for i, j in exponents], axis=-1) / scale[1]
     return np.stack([grad_c1, grad_c2], axis=-2)
+
+
+quadratic_basis = morphing_basis
+quadratic_basis_gradient = morphing_basis_gradient
 
 
 #Convert benchmark vectors to matricies
 benchmark_theta = theta_matrix([BENCHMARK_POINTS[name] for name in BENCHMARK_NAMES])
 
 #Calculate the quadratic polynomial components for each benchmark point
-basis_at_benchmarks = quadratic_basis(benchmark_theta)
+basis_at_benchmarks = morphing_basis(benchmark_theta)
+if basis_at_benchmarks.shape[0] < basis_at_benchmarks.shape[1]:
+    raise ValueError(f"Morphing degree {MORPHING_POLYNOMIAL_DEGREE} requires {basis_at_benchmarks.shape[1]} benchmark points")
 
 # checks condition number of the basis matrix, we want a low condition number (e.g. < 10) for stability
 print("Morphing basis condition number:", f"{np.linalg.cond(basis_at_benchmarks):.3g}")
@@ -1110,7 +1163,7 @@ sigma_coefficients = morphing_matrix @ sigma_benchmarks
 
 # Predict the total cross section at the reference parameter
 reference_theta = theta_vector(REFERENCE_THETA)
-reference_basis = quadratic_basis(reference_theta[None, :])[0]
+reference_basis = morphing_basis(reference_theta[None, :])[0]
 reference_sigma = float(reference_basis @ sigma_coefficients)
 
 # Compute the proposal mixture density proxy.
@@ -1139,21 +1192,21 @@ print("Accepted-event mixture fractions:", dict(zip(BENCHMARK_NAMES, np.round(be
 def morphed_weights(indices: np.ndarray, theta_values: np.ndarray) -> np.ndarray:
     """Return morphed event weights for selected events and theta values."""
     # Project event weights to target points using event basis coefficients
-    phi = quadratic_basis(theta_values)
+    phi = morphing_basis(theta_values)
     return np.einsum("ij,ij->i", event_coefficients[indices], phi)
 
 
 def morphed_sigma(theta_values: np.ndarray) -> np.ndarray:
     """Return morphed total cross sections for theta values."""
     # Project total cross sections using basis representation
-    return quadratic_basis(theta_values) @ sigma_coefficients
+    return morphing_basis(theta_values) @ sigma_coefficients
 
 
 def score_at_theta(indices: np.ndarray, theta_values: np.ndarray) -> np.ndarray:
     """Return joint score t(x,z|theta) for selected event-theta pairs."""
     coeffs = event_coefficients[indices]
-    phi = quadratic_basis(theta_values)
-    grad_phi = quadratic_basis_gradient(theta_values)
+    phi = morphing_basis(theta_values)
+    grad_phi = morphing_basis_gradient(theta_values)
 
     # Calculate morphed weights, total cross-sections, and their parameter gradients
     weights_theta = np.einsum("ij,ij->i", coeffs, phi)
@@ -1195,18 +1248,36 @@ def log_ratio_and_score(indices: np.ndarray, theta0_values: np.ndarray, theta1_v
 
 
 def target_valid_mask(log_r: np.ndarray, score: np.ndarray) -> np.ndarray:
-    """Return a stability mask for augmented training targets."""
-    # Create a mask selecting only finite likelihood ratios and scores
-    mask = np.isfinite(log_r) & np.all(np.isfinite(score), axis=1)
+    """Return a finite-target mask, with optional explicitly configured truncation."""
+    return finite_target_mask(log_r, score, LOG_R_ABS_MAX, SCORE_COMPONENT_ABS_MAX, SCORE_NORM_MAX)
 
-    # Clip outlier training targets using user-specified stability boundaries
-    if LOG_R_ABS_MAX is not None:
-        mask &= np.abs(log_r) <= LOG_R_ABS_MAX
-    if SCORE_COMPONENT_ABS_MAX is not None:
-        mask &= np.all(np.abs(score) <= SCORE_COMPONENT_ABS_MAX, axis=1)
-    if SCORE_NORM_MAX is not None:
-        mask &= np.linalg.norm(score, axis=1) <= SCORE_NORM_MAX
+
+def finite_target_mask(
+    log_r: np.ndarray,
+    score: np.ndarray,
+    log_r_abs_max: float | None = None,
+    score_component_abs_max: float | None = None,
+    score_norm_max: float | None = None,
+) -> np.ndarray:
+    """Select finite targets, with optional explicitly requested truncation."""
+    mask = np.isfinite(log_r) & np.all(np.isfinite(score), axis=1)
+    if log_r_abs_max is not None:
+        mask &= np.abs(log_r) <= log_r_abs_max
+    if score_component_abs_max is not None:
+        mask &= np.all(np.abs(score) <= score_component_abs_max, axis=1)
+    if score_norm_max is not None:
+        mask &= np.linalg.norm(score, axis=1) <= score_norm_max
     return mask
+
+
+def draw_uniform_reference_events(
+    candidate_indices: np.ndarray,
+    n_samples: int,
+    rng: np.random.Generator,
+) -> np.ndarray:
+    """Resample direct reference events without an inappropriate mixture correction."""
+    positions = rng.choice(len(candidate_indices), size=n_samples, replace=True)
+    return candidate_indices[positions]
 
 
 # ## 10. Morphing diagnostic plots
@@ -1422,11 +1493,13 @@ def sample_train_ratio_like(split: str, n_samples: int, candidate_indices: np.nd
 
 def sample_train_local_like(split: str, n_samples: int, candidate_indices: np.ndarray, rng: np.random.Generator) -> pd.DataFrame:
     """Create a local score sample. Default follows the paper: x ~ p(x|SM), t(x,z|SM)."""
-    if LOCAL_SCORE_THETA_MODE == "reference":
-        theta = np.repeat(reference_theta[None, :], n_samples, axis=0).astype(np.float32)
-        probabilities = event_probabilities(reference_theta.astype(np.float64), candidate_indices)
-        positions = rng.choice(len(candidate_indices), size=n_samples, replace=True, p=probabilities)
-        event_indices = candidate_indices[positions]
+    local_benchmark = REFERENCE_BENCHMARK if LOCAL_SCORE_THETA_MODE == "reference" else LOCAL_SCORE_THETA_MODE
+    if local_benchmark in BENCHMARK_POINTS:
+        local_theta = theta_vector(BENCHMARK_POINTS[local_benchmark])
+        theta = np.repeat(local_theta[None, :], n_samples, axis=0).astype(np.float32)
+        # The caller already restricts candidates to directly generated reference
+        # events, so applying the mixed-proposal correction again would bias p(x|SM).
+        event_indices = draw_uniform_reference_events(candidate_indices, n_samples, rng)
     else:
         n_theta = min(THETA_BATCHES[split], n_samples)
         theta_grid = sample_theta_values(n_theta, rng)
@@ -1565,9 +1638,10 @@ for split in ["train", "validation", "test"]:
     print(f"Building {split} ratio sample: {ratio_n:,} rows from {len(split_indices):,} base events", flush=True)
     ratio_stats = write_sample_in_chunks(sample_train_ratio_like, split, ratio_n, split_indices, rng, ratio_path)
 
-    if LOCAL_SCORE_THETA_MODE == "reference":
+    local_benchmark = REFERENCE_BENCHMARK if LOCAL_SCORE_THETA_MODE == "reference" else LOCAL_SCORE_THETA_MODE
+    if local_benchmark in BENCHMARK_POINTS:
         source = event_df.iloc[split_indices]["source_benchmark"].to_numpy()
-        local_indices = split_indices[source == REFERENCE_BENCHMARK]
+        local_indices = split_indices[source == local_benchmark]
         if len(local_indices) == 0:
             raise RuntimeError(f"No reference-benchmark events available for local score split {split}")
     else:

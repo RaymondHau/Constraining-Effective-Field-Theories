@@ -4,7 +4,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_DIR"
-CONFIG="${1:-configs/paper_10m/neural_training.json}"
+PROCESS="${EFT_PROCESS:-WBF}"
+CONFIG="${1:-configs/$PROCESS/neural_training.json}"
 read -r -a EXTRA_SBATCH_ARGS <<< "${SBATCH_ARGS:-}"
 if [[ -n "${ACCOUNT:-}" ]]; then
   EXTRA_SBATCH_ARGS+=("--account=$ACCOUNT")

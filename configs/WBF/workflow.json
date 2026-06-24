@@ -1,0 +1,55 @@
+{
+  "name": "WBF_full_workflow",
+  "python": "auto",
+  "log_dir": "logs/workflow",
+  "env": {},
+  "stages": [
+    {
+      "name": "event_generation",
+      "script": "scripts/EFT_event_generation.py",
+      "enabled": true,
+      "config": "event_generation.json"
+    },
+    {
+      "name": "prepare_samples",
+      "script": "scripts/EFT_prepare_samples.py",
+      "enabled": true,
+      "config": "sample_preparation.json"
+    },
+    {
+      "name": "generate_validation_events",
+      "script": "scripts/validation_events.py",
+      "enabled": true,
+      "args": [
+        "--config",
+        "configs/WBF/validation_events_config.json"
+      ]
+    },
+    {
+      "name": "validate_morphing",
+      "script": "scripts/compare_validation_morphing.py",
+      "enabled": true,
+      "args": [
+        "--validation-config",
+        "configs/WBF/validation_events_config.json",
+        "--sample-config",
+        "configs/WBF/sample_preparation.json"
+      ]
+    },
+    {
+      "name": "train_estimators",
+      "script": "scripts/EFT_train_estimators.py",
+      "enabled": true,
+      "config": "neural_training.json"
+    },
+    {
+      "name": "constraints",
+      "script": "scripts/constrains.py",
+      "enabled": true,
+      "args": [
+        "--config",
+        "configs/WBF/constrains_config.json"
+      ]
+    }
+  ]
+}

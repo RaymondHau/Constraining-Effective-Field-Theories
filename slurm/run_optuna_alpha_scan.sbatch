@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-#SBATCH --job-name=eft_neural_training
-#SBATCH --output=slurm-%x-%j.out
-#SBATCH --error=slurm-%x-%j.err
+#SBATCH --job-name=eft_optuna_alpha
+#SBATCH --output=slurm-%x-%A_%a.out
+#SBATCH --error=slurm-%x-%A_%a.err
+#SBATCH --array=0-2
 #SBATCH --time=24:00:00
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=4
@@ -11,7 +12,6 @@
 #SBATCH --mail-user=rs2398@cam.ac.uk
 #SBATCH --account=mphil-dis-sl2-gpu
 #SBATCH --gres=gpu:1
-## For CPU-only training, use --partition=icelake, remove --gres, and consider --cpus-per-task=8.
 
 set -euo pipefail
 
@@ -40,9 +40,22 @@ fi
 
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-${SLURM_CPUS_PER_TASK:-1}}"
 export MKL_NUM_THREADS="${MKL_NUM_THREADS:-${SLURM_CPUS_PER_TASK:-1}}"
-export EFT_LOG_DIR="${EFT_LOG_DIR:-$HOME/eft_slurm_logs/${SLURM_JOB_NAME:-eft}/${SLURM_JOB_ID:-manual}}"
-mkdir -p "$EFT_LOG_DIR"
 
 PROCESS="${EFT_PROCESS:-WBF}"
 CONFIG="${1:-configs/$PROCESS/neural_training.json}"
-exec bash ./run_neural_training.sh "$CONFIG"
+TRIALS_PER_METHOD="${2:-20}"
+SCAN_EPOCHS="${3:-100}"
+OUTPUT_ROOT="${OPTUNA_OUTPUT_DIR:-table_outputs/optuna_alpha_scan}"
+
+METHODS=(RASCAL CASCAL ALICES)
+METHOD="${METHODS[${SLURM_ARRAY_TASK_ID:?SLURM_ARRAY_TASK_ID is not set}]}"
+METHOD_LOWER="${METHOD,,}"
+
+echo "[optuna] array task ${SLURM_ARRAY_TASK_ID}: scanning ${METHOD} on ${CUDA_VISIBLE_DEVICES:-assigned GPU}"
+
+exec python -u scripts/optuna_alpha_scan.py \
+  --config "$CONFIG" \
+  --methods "$METHOD" \
+  --output-dir "$OUTPUT_ROOT/$METHOD_LOWER" \
+  --trials-per-method "$TRIALS_PER_METHOD" \
+  --epochs "$SCAN_EPOCHS"

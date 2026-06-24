@@ -1,0 +1,51 @@
+{
+  "paper": "arXiv:1805.00020",
+  "madgraph_executable": "madgraph_work/external/MG5_aMC_v3_7_1/bin/mg5_aMC",
+  "import_model": "EWdim6-full",
+  "process": "p p > h j j QCD=0 NP<=2, (h > z z NP<=2, z > l+ l-)",
+  "add_processes": [],
+  "coefficient_names": ["fW", "fWW"],
+  "theta_true": [
+    [-0.5, -0.5],
+    [-0.8, 0.6],
+    [0.3, 0.4],
+    [0.0, 0.0],
+    [0.393, 0.492]
+  ],
+  "N_generated": 50000,
+  "random_seed": 42,
+  "random_seed_stride": 1000,
+  "param_card_scale": 16.52,
+  "eft_operator_keys": {"fW": "2", "fWW": "7"},
+  "run_card_settings": {
+    "ebeam1": 6500,
+    "ebeam2": 6500,
+    "event_norm": "sum",
+    "ptj": 0.0,
+    "ptl": 0.0,
+    "etaj": -1.0,
+    "etal": -1.0,
+    "drjj": 0.0,
+    "drll": 0.0,
+    "drjl": 0.0,
+    "maxjetflavor": 4
+  },
+  "param_card_settings": {
+    "dim6 1": 0.0,
+    "dim6 2": "{fW_param}",
+    "dim6 3": 0.0,
+    "dim6 4": 0.0,
+    "dim6 5": 0.0,
+    "dim6 6": 0.0,
+    "dim6 7": "{fWW_param}",
+    "dim6 8": 0.0
+  },
+  "extra_launch_commands": [],
+  "shower": "shower=OFF",
+  "detector": "detector=OFF",
+  "analysis": "analysis=OFF",
+  "event_file_glob": "Events/run_*/*unweighted_events*.lhe*",
+  "output_dir": "madgraph_work/validation_events",
+  "preparation_config": "configs/WBF/sample_preparation.json",
+  "log_dir": "logs/madgraph/validation_events"
+}

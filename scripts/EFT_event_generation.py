@@ -70,7 +70,7 @@ def config_section(name: str) -> Dict:
 # MadGraph and file layout
 # -------------------------
 # Path to MadGraph 5 installation and binary
-MG5_DIR = Path(os.environ.get("MG5_DIR", "external/MG5_aMC_v3_7_1")).expanduser()
+MG5_DIR = Path(os.environ.get("MG5_DIR", "madgraph_work/external/MG5_aMC_v3_7_1")).expanduser()
 if not MG5_DIR.is_absolute():
     MG5_DIR = (Path.cwd() / MG5_DIR).resolve()
 MG5_BIN = MG5_DIR / "bin" / "mg5_aMC"
@@ -97,8 +97,8 @@ STORAGE_WORKSPACE_DIR = preferred_storage_workspace()
 WORKSPACE_DIR = LOCAL_WORKSPACE_DIR
 COMMAND_DIR = LOCAL_WORKSPACE_DIR / "mg5_commands"
 TABLE_DIR = STORAGE_WORKSPACE_DIR / "tables"
-PROCESS_DIR = LOCAL_WORKSPACE_DIR / "processes" / "PROC_EWdim6_VBF_HAA"
-GENERATED_LHE_ARCHIVE_DIR = STORAGE_WORKSPACE_DIR / "generated_lhe_archive"
+PROCESS_DIR = LOCAL_WORKSPACE_DIR / "madgraph_work" / "processes" / "PROC_EWdim6_WBF_HAA"
+GENERATED_LHE_ARCHIVE_DIR = STORAGE_WORKSPACE_DIR / "madgraph_work/generated_lhe_archive"
 EVENT_GENERATION_LOG_DIR = STORAGE_WORKSPACE_DIR / "event_generation_logs"
 ARCHIVE_GENERATED_LHE_TO_STORAGE = os.environ.get("EFT_ARCHIVE_LHE_TO_STORAGE", "1") != "0"
 LHE_FILENAME = "unweighted_events.lhe.gz"
@@ -118,8 +118,8 @@ if _PATH_CONFIG:
     WORKSPACE_DIR = LOCAL_WORKSPACE_DIR
     COMMAND_DIR = LOCAL_WORKSPACE_DIR / _PATH_CONFIG.get("command_subdir", "mg5_commands")
     TABLE_DIR = STORAGE_WORKSPACE_DIR / _PATH_CONFIG.get("table_subdir", "tables")
-    PROCESS_DIR = LOCAL_WORKSPACE_DIR / _PATH_CONFIG.get("process_subdir", "processes/PROC_EWdim6_VBF_HAA")
-    GENERATED_LHE_ARCHIVE_DIR = STORAGE_WORKSPACE_DIR / _PATH_CONFIG.get("lhe_archive_subdir", "generated_lhe_archive")
+    PROCESS_DIR = LOCAL_WORKSPACE_DIR / _PATH_CONFIG.get("process_subdir", "madgraph_work/processes/PROC_EWdim6_WBF_HAA")
+    GENERATED_LHE_ARCHIVE_DIR = STORAGE_WORKSPACE_DIR / _PATH_CONFIG.get("lhe_archive_subdir", "madgraph_work/generated_lhe_archive")
     EVENT_GENERATION_LOG_DIR = STORAGE_WORKSPACE_DIR / _PATH_CONFIG.get("event_log_subdir", "event_generation_logs")
     ARCHIVE_GENERATED_LHE_TO_STORAGE = bool(_PATH_CONFIG.get("archive_generated_lhe", ARCHIVE_GENERATED_LHE_TO_STORAGE))
     LHE_FILENAME = _PATH_CONFIG.get("lhe_filename", LHE_FILENAME)

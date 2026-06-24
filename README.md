@@ -1,91 +1,215 @@
 # EFT Script Workflow
 
-This workspace contains Python versions of the notebooks plus JSON configuration files.
+This repository provides script-based event generation, sample preparation,
+neural-estimator training, validation-event generation, and EFT constraint
+evaluation.
 
-Install Python dependencies into your active environment:
+## Environment
+
+The Python workflow requires Python 3.10 or newer:
 
 ```bash
 python -m pip install -r requirements.txt
 ```
 
-Clone the repository, then run from the repository root in Ubuntu, preferably in
-`tmux`:
+On CSD3:
 
 ```bash
-git clone https://github.com/RaymondHau/Constraining-Effective-Field-Theories.git
-cd Constraining-Effective-Field-Theories
-tmux new -s eft_10m
-./run_workflow.sh configs/paper_10m.json
+bash slurm/setup_environment.sh
 ```
 
-Run individual stages:
+## Process configuration
+
+Configuration is organized by physics process. The current process is WBF:
+
+```text
+configs/
+  WBF/
+    workflow.json
+    event_generation.json
+    sample_preparation.json
+    neural_training.json
+    validation_events_config.json
+    constrains_config.json
+```
+
+All wrappers default to `EFT_PROCESS=WBF`. To add another process later, create
+the same six files under its own `configs/<PROCESS>/` directory, then select it
+without changing code:
+
+```bash
+EFT_PROCESS=VBF ./run_workflow.sh
+EFT_PROCESS=VBF bash slurm/submit_hybrid_workflow.sh
+```
+
+An explicit config path can still be passed as the first argument to an
+individual stage wrapper.
+
+### Paper benchmark (arXiv:1805.00020)
+
+The WBF configuration follows the example analysis in arXiv:1805.00020:
+
+- `qq -> qq h -> qq ZZ -> qq 4l`, with `l = e, mu`;
+- the dimensionless parameters `fW v^2 / Lambda^2` and
+  `fWW v^2 / Lambda^2`, represented as `fW` and `fWW`;
+- the square parameter domain `[-1, 1]^2` and fixed ratio reference
+  `(0.393, 0.492)`;
+- a 15-point, total-degree-four morphing basis;
+- 5.5 million generated parton-level events, 10 million parameterized
+  training examples, and 50,000 evaluation examples;
+- 42 features from the two tagging jets, four leptons, four-lepton system,
+  two reconstructed Z candidates, and dijet system;
+- five hidden layers of 100 `tanh` units, 50 epochs, and the paper values
+  `alpha=100` for RASCAL and `alpha=5` for CASCAL;
+- expected constraints from 36 observed events over the published parameter
+  range.
+
+The paper does not tabulate its 15 numerical morphing coordinates. The config
+therefore uses a deterministic full-rank basis spanning the same parameter
+domain (condition number 75.35). The default preparation uses the paper's
+idealized parton-level detector model; shower and detector simulation remain
+disabled.
+
+## Workspace layout
+
+```text
+madgraph_work/
+  external/MG5_aMC_v3_7_1/
+  generated_lhe_archive/
+  mg5_commands/
+  processes/
+  validation_events/
+table_outputs/
+  madminer_style_training/
+plotting_outputs/
+logs/
+```
+
+## Local execution
+
+Run the complete configured WBF workflow:
+
+```bash
+./run_workflow.sh
+```
+
+Run stages individually:
 
 ```bash
 ./run_event_generation.sh
 ./run_sample_preparation.sh
+./run_validation_events.sh
+./run_validation_morphing_comparison.sh
 ./run_neural_training.sh
+./run_constrains.sh
 ```
 
-Each wrapper defaults to the `paper_10m` config for that stage. To use another
-stage config, pass it as the first argument:
+## CSD3 execution
+
+Submit individual stages:
 
 ```bash
-./run_event_generation.sh configs/quick_test/event_generation.json
-./run_sample_preparation.sh configs/quick_test/sample_preparation.json
-./run_neural_training.sh configs/quick_test/neural_training.json
+bash slurm/submit_event_generation.sh
+bash slurm/submit_sample_preparation.sh
+bash slurm/submit_validation_events.sh
+bash slurm/submit_validation_morphing_comparison.sh
+bash slurm/submit_neural_training.sh
+bash slurm/submit_constrains.sh
 ```
 
-Detach from `tmux` with `Ctrl-b`, then `d`. Reattach with:
+Submit the dependency-chained CPU/GPU workflow:
 
 ```bash
-tmux attach -t eft_10m
+bash slurm/submit_hybrid_workflow.sh
 ```
 
-Useful workflow configs:
+Event preparation and validation generation use `icelake` with account
+`mphil-dis-sl2-cpu`. Neural training and gradient-based score constraints use
+`ampere`, account `mphil-dis-sl2-gpu`, and one GPU per job.
 
-- `configs/paper_10m.json`: stage order for the 10M paper-style setup.
-- `configs/generation_only_10m.json`: stage order for event generation only.
-- `configs/quick_test.json`: stage order for the smaller smoke-test workflow.
+## Neural-estimator loss conventions
 
-Each workflow points to separate stage configs:
+Ratio samples use `y=1` for numerator events drawn from `theta0` and `y=0` for
+denominator events drawn from the fixed reference point. CASCAL and ALICES use
+classifier loss plus numerator-only joint-score regression. RASCAL implements
+the ratio / inverse-ratio regression of Eq. (37) in arXiv:1805.00020, plus the
+same numerator-only score term. Configured `alpha` values multiply raw squared
+score errors in the dimensionless coordinates defined by
+`physics.morphing_theta_scale`, matching the paper's convention rather than
+data-standardized MSEs.
 
-- `configs/paper_10m/event_generation.json`
-- `configs/paper_10m/sample_preparation.json`
-- `configs/paper_10m/neural_training.json`
+Training writes `test_metrics.csv` for clearly labelled joint-target
+diagnostics and `test_objective_metrics.csv` for classifier, ratio/inverse-ratio,
+and numerator-score held-out risks. Log-r metrics and plots use the continuous
+raw network prediction directly; no probability calibration is applied.
 
-The same layout exists under `configs/quick_test/` and
-`configs/generation_only_10m/`.
+## Constraint statistics
 
-The stage JSON files are the workflow control panel. Each one only contains
-settings that are relevant to that stage:
+The constraint stage reports two distinct diagnostics. `q_score` is the primary
+score-test statistic: at each parameter point it sums the network gradient,
+centres it with the held-out numerator mean, and normalizes it with the held-out
+score covariance. The covariance includes both event fluctuations and the
+finite-sample uncertainty of the estimated calibration mean, including a
+conservative interpolation term between sparse calibration points. Its
+two-parameter confidence contours use the configured chi-square thresholds.
+`q_relative` is the raw learned likelihood-ratio scan and is retained as a
+diagnostic of global log-r quality.
 
-- Event generation config: MadGraph paths, process/model/EFT card settings, benchmark generation budgets.
-- Sample preparation config: LHE/table paths, observables, benchmark/morphing information, smearing, cuts, sample sizes, target stability cuts.
-- Neural training config: prepared-sample/model paths, observables/operators, estimator methods, neural-network hyperparameters.
+Score calibration is read from the held-out `test_predictions.csv`, using only
+`y=1` numerator rows and never the validation events being constrained. The old
+per-event log-r residual rescaling is disabled by default and is not used for
+the published score-test contours.
 
-The runner still also sets a few environment variables from the JSON for
-backwards compatibility with the original converted notebook code.
+Validation datasets have known truth points, so score closure plots use an
+independent fine grid centred on that truth. Raw likelihood plots use their own
+likelihood-selected refinement grid. A third full-range coarse score plot is
+written as a global audit for disconnected or boundary minima; it must not be
+mistaken for the fine closure plot.
 
-Outputs and logs now default to project-local folders:
+### Optuna alpha scan
 
-```text
-logs/
-tables/
-processes/
+Run resumable 100-epoch logarithmic alpha scans for RASCAL, CASCAL, and ALICES
+as a three-task Ampere job array. Each method uses one GPU, so all three scans can
+run concurrently when the scheduler has three GPUs available:
+
+```bash
+bash slurm/submit_optuna_alpha_scan.sh
 ```
 
-Generated LHE files are read first from:
+The default is 20 trials per method. Override it without editing the batch file:
 
-```text
-generated_lhe_archive/
+```bash
+TRIALS_PER_METHOD=30 SCAN_EPOCHS=100 bash slurm/submit_optuna_alpha_scan.sh
 ```
 
-Large generated artifacts are not committed directly to this repository. Download
-the generated tables, LHE archive, and bundled MadGraph installation from:
+Each scan minimizes raw hard-label marginal binary cross-entropy, averaged
+uniformly over theta points. The Brier score and joint-log-r diagnostics are also
+recorded without altering the continuous prediction. To
+avoid concurrent SQLite writes on the shared filesystem, each method has its
+own resumable database and results directory:
+`table_outputs/optuna_alpha_scan/{rascal,cascal,alices}/`. Each directory contains
+`optuna_alpha.db`, `best_alpha_summary.csv`, `best_alphas.json`, and the trial
+logs. Re-running the submission command resumes completed studies and fills only
+the remaining trials.
 
-[Google Drive: `eft_generated_artifacts_2026-06-10.zip`](https://drive.google.com/file/d/1TevN3HIQ7Pl6PdZSvJ4BLHunqynZnBVT/view?usp=sharing)
+After copying the completed result directories back to the local repository,
+generate the alpha-versus-marginal-BCE figure and joint-target diagnostic
+performance plots from each winning checkpoint with:
 
-Archive details:
+```bash
+python scripts/optuna_alpha_scan.py --plot-only
+```
+
+Matplotlib PNGs are written to `plotting_outputs/optuna_alpha_scan/`; best-model
+performance plots are under its `best_performance/` subdirectory. No performance
+plots are made for non-winning checkpoints. During optimization, checkpoints from
+non-winning trials are deleted as soon as a better trial is known; trial logs,
+histories, and scalar metrics remain for diagnostics.
+
+## Generated artifact archive
+
+Large generated artifacts are available from
+[Google Drive](https://drive.google.com/file/d/1TevN3HIQ7Pl6PdZSvJ4BLHunqynZnBVT/view?usp=sharing).
 
 ```text
 file:   eft_generated_artifacts_2026-06-10.zip
@@ -93,64 +217,15 @@ size:   about 6.2 GB
 sha256: 3b7aa01501ca9e4697848c006e25eab5daf0b489cd8422378df925c4fc8607f9
 ```
 
-After downloading, move or copy the ZIP into the cloned repository root and
-unpack it there:
+Place it in the repository root and unpack it there:
 
 ```bash
-cd Constraining-Effective-Field-Theories
 sha256sum eft_generated_artifacts_2026-06-10.zip
 unzip eft_generated_artifacts_2026-06-10.zip
 ```
 
-If the ZIP is still in your downloads folder, copy it into the repository first,
-for example:
-
-```bash
-cp ~/Downloads/eft_generated_artifacts_2026-06-10.zip .
-```
-
-The checksum command should print the SHA-256 value shown above. Unzipping from
-the repository root restores the expected project-local paths:
+The configured MadGraph installation is:
 
 ```text
-external/MG5_aMC_v3_7_1/
-generated_lhe_archive/
-tables/
+madgraph_work/external/MG5_aMC_v3_7_1/
 ```
-
-If those folders or files already exist and `unzip` asks whether to replace
-them, answer `A` to replace all files from the archive.
-
-The omitted generated files include the multi-GB training CSVs, `end_to_end_events.csv`,
-the compressed LHE archive, and the local MG5 installation. Lightweight summaries,
-trained RASCAL outputs, metrics, and performance plots may still be present in
-`tables/madminer_style_training/`.
-
-Reproduction/provenance files copied from the original workspace are stored in:
-
-```text
-repro/mg5_commands/
-repro/mg5_cards/
-repro/event_generation_logs/
-```
-
-These include the MG5 process command, the generated run/param/reweight cards,
-default detector/shower cards, and logs for the archived event-generation runs.
-
-The MadGraph installation used for event generation is expected at:
-
-```text
-external/MG5_aMC_v3_7_1/
-```
-
-The event-generation configs point to that local copy. The `EWdim6-full` model
-resolves successfully in this bundled MG5 installation.
-MG5 3.7.1 prints a warning that reweighting is best supported with Python 3.6.x;
-if rerunning event generation fails under a newer Python, use an environment
-compatible with MG5's reweighting feature.
-
-Live MadGraph process directories stay under `processes/` when event generation
-is rerun. Python itself is still supplied by your active environment or virtual
-environment; the required Python packages are listed in `requirements.txt`.
-
-This script workflow should avoid IDE/Jupyter reconnect crashes. It does not by itself make 10M-event sampling/training out-of-core; if preparation or training runs out of memory, the next step is to refactor those stages to chunked HDF5/Parquet/memmap pipelines.

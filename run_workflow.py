@@ -42,22 +42,24 @@ def run_stage(stage: dict[str, Any], workflow_config_path: Path, base_env: dict[
     script = (WORKFLOW_DIR / stage["script"]).resolve()
     if not script.exists():
         raise FileNotFoundError(f"Stage {name!r} script does not exist: {script}")
-    stage_config_path = resolve_config_path(workflow_config_path, stage.get("config"))
-    stage_config = load_config(stage_config_path)
+    stage_config_path = resolve_config_path(workflow_config_path, stage["config"]) if stage.get("config") else None
+    stage_config = load_config(stage_config_path) if stage_config_path else {}
 
     env = os.environ.copy()
     env.update(base_env)
     env.update({str(k): str(v) for k, v in stage_config.get("env", {}).items()})
     env.update({str(k): str(v) for k, v in stage.get("env", {}).items()})
-    env["EFT_WORKFLOW_CONFIG"] = str(stage_config_path)
+    if stage_config_path:
+        env["EFT_WORKFLOW_CONFIG"] = str(stage_config_path)
+    env["PYTHONUNBUFFERED"] = "1"
 
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / f"{time.strftime('%Y%m%d_%H%M%S')}_{name}.log"
-    command = [python_bin, str(script)]
+    command = [python_bin, "-u", str(script), *[str(argument) for argument in stage.get("args", [])]]
 
     print(f"\n=== {name} ===", flush=True)
     print(f"script: {script}", flush=True)
-    print(f"config: {stage_config_path}", flush=True)
+    print(f"config: {stage_config_path or '(command-line arguments/defaults)'}", flush=True)
     print(f"log:    {log_path}", flush=True)
     print(f"cmd:    {command_text(command)}", flush=True)
 
@@ -96,7 +98,7 @@ def main() -> int:
     config = load_config(config_path)
     configured_python = config.get("python")
     python_bin = sys.executable if configured_python in (None, "auto") else str(configured_python)
-    log_dir = Path(config.get("log_dir", "logs/script_workflow_logs"))
+    log_dir = Path(os.environ.get("EFT_LOG_DIR", config.get("log_dir", "logs/script_workflow_logs")))
     if not log_dir.is_absolute():
         log_dir = (PROJECT_DIR / log_dir).resolve()
 
@@ -114,9 +116,11 @@ def main() -> int:
             continue
         if args.dry_run:
             script = (WORKFLOW_DIR / stage["script"]).resolve()
-            stage_config_path = resolve_config_path(config_path, stage.get("config"))
+            stage_config_path = resolve_config_path(config_path, stage["config"]) if stage.get("config") else None
             print(f"Would run {stage['name']}: {script}")
-            print(f"  config: {stage_config_path}")
+            print(f"  config: {stage_config_path or '(command-line arguments/defaults)'}")
+            if stage.get("args"):
+                print(f"  args: {stage['args']}")
             continue
         run_stage(stage, config_path, base_env, python_bin, log_dir)
 
